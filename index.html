@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>سلف موظفي وعمال أمازون سوبر ماركت</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+</head>
+<body>
+  <div class="page">
+    <header class="top">
+      <div class="brand">
+        <img src="logo.jpg" alt="Amazon Super Market">
+        <div class="brand-text">
+          <div class="brand-en">AMAZON<br><span>SUPER MARKET</span></div>
+          <div class="brand-ar">أمازون سوبر ماركت</div>
+        </div>
+      </div>
+
+      <div class="title-box">
+        <div class="title">سلف موظفي وعمال أمازون سوبر ماركت</div>
+        <div class="month-title" id="monthTitle">شهر 9 / 2026</div>
+      </div>
+
+      <div class="side-note">
+        <b>معاً</b><br>نصنع<br>مستقبلاً<br>أفضل
+      </div>
+    </header>
+
+    <section class="toolbar">
+      <div class="today">
+        <span>التاريخ اليوم</span>
+        <strong id="today"></strong>
+      </div>
+      <button class="tool green" id="addBtn"><span class="tool-icon">＋</span><span class="tool-label">إضافة سلفة</span></button>
+      <button class="tool blue" id="editBtn"><span class="tool-icon">✎</span><span class="tool-label">تعديل السلفة</span></button>
+      <button class="tool red" id="deleteBtn"><span class="tool-icon">🗑</span><span class="tool-label">حذف السلفة</span></button>
+      <button class="tool navy" id="printBtn"><span class="tool-icon">🖨</span><span class="tool-label">طباعة التقرير</span></button>
+      <button class="tool excel" id="exportBtn"><span class="tool-icon pdf-icon">PDF</span><span class="tool-label">تصدير PDF</span></button>
+    </section>
+
+    <section class="entry-card">
+      <div class="entry-head">إدخال سلفة جديدة</div>
+      <div class="form-grid">
+        <label>اسم الموظف / العامل
+          <select id="employeeSelect"><option value="">اختر الموظف</option></select>
+        </label>
+        <label>مبلغ السلفة (د.ع)
+          <input id="amount" type="number" min="1" step="1" placeholder="0">
+        </label>
+        <label>التاريخ
+          <input id="advanceDate" type="date">
+        </label>
+        <label>مانح السلفة
+          <select id="giverSelect"><option value="">اختر الاسم</option></select>
+        </label>
+        <label>ملاحظات
+          <input id="notes" type="text" placeholder="">
+        </label>
+      </div>
+    </section>
+
+    <section class="table-wrap">
+      <table id="advancesTable">
+        <thead>
+          <tr>
+            <th>ت</th>
+            <th>رقم العملية</th>
+            <th>التاريخ</th>
+            <th>اسم الموظف / العامل</th>
+            <th>مبلغ السلفة (د.ع)</th>
+            <th>مانح السلفة</th>
+            <th>ملاحظات</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section class="summary-grid">
+      <div class="summary-card">
+        <div class="summary-title brown">مجموع السلف حسب المانح</div>
+        <table id="giverSummary"><thead><tr><th>مانح السلفة</th><th>عدد العمليات</th><th>المجموع (د.ع)</th></tr></thead><tbody></tbody></table>
+      </div>
+
+      <div class="summary-card">
+        <div class="summary-title blue">مجموع السلف لكل موظف</div>
+        <table id="employeeSummary"><thead><tr><th>اسم الموظف / العامل</th><th>عدد السلف</th><th>المجموع (د.ع)</th></tr></thead><tbody></tbody></table>
+      </div>
+
+      <div class="summary-card monthly">
+        <div class="summary-title green2">ملخص الشهر</div>
+        <div class="stat"><span>شهر</span><b id="summaryMonth"></b></div>
+        <div class="stat"><span>عدد العمليات</span><b id="opCount">0</b></div>
+        <div class="stat"><span>عدد الموظفين</span><b id="employeeCount">0</b></div>
+        <div class="stat"><span>عدد المانحين</span><b id="giverCount">0</b></div>
+        <div class="total"><span>المجموع الكلي للسلف</span><b id="grandTotal">0 د.ع</b></div>
+      </div>
+    </section>
+
+    <section class="footer-note">
+      <span>إدارة مالية دقيقة ... لعمل مستقر ومزدهر</span>
+      <span>📍 AMAZON SUPER MARKET</span>
+      <strong>أمازون سوبر ماركت</strong>
+      <span>الالتزام ... ثقة ... نجاح</span>
+    </section>
+
+    <section class="print-details" id="printDetails">
+      <div class="print-details-head">
+        <div>
+          <div class="print-details-title">تفاصيل السلف</div>
+          <div class="print-details-subtitle">تفاصيل جميع السلف المسجلة خلال شهر <span id="detailsMonth"></span></div>
+        </div>
+        <div class="print-details-total">
+          <span>عدد السلف</span>
+          <b id="detailsCount">0</b>
+        </div>
+      </div>
+      <table id="detailsTable">
+        <thead>
+          <tr>
+            <th>ت</th>
+            <th>رقم العملية</th>
+            <th>التاريخ</th>
+            <th>اسم الموظف / العامل</th>
+            <th>مبلغ السلفة (د.ع)</th>
+            <th>مانح السلفة</th>
+            <th>ملاحظات</th>
+          </tr>
+        </thead>
+        <tbody id="printDetailsBody"></tbody>
+      </table>
+    </section>
+  </div>
+
+  <div class="modal" id="peopleModal">
+    <div class="modal-box">
+      <button class="close" id="closePeople">×</button>
+      <h2 id="peopleTitle">إدارة الموظفين والعمال</h2>
+      <div class="inline-form">
+        <input id="personName" placeholder="اكتب الاسم">
+        <button id="savePerson" class="primary">إضافة</button>
+      </div>
+      <div id="peopleList"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="confirmModal">
+    <div class="modal-box small">
+      <h2>تأكيد</h2>
+      <p id="confirmText"></p>
+      <div class="confirm-actions">
+        <button id="confirmYes" class="danger">نعم</button>
+        <button id="confirmNo">إلغاء</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
