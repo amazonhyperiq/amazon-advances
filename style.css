@@ -78,7 +78,7 @@ tr.selected td{background:#dcefe5!important;outline:1px solid #7ba891}
   .form-grid{grid-template-columns:1fr;gap:7px;padding:8px}.entry-head{font-size:17px}
   .summary-grid{grid-template-columns:1fr}.summary-card{width:100%}
   .footer-note{flex-wrap:wrap;gap:8px;justify-content:center;text-align:center}
-  .table-wrap{width:100%;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;touch-action:pan-x;margin-top:8px;scrollbar-width:thin}
+  .table-wrap{width:100%;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y;margin-top:8px;scrollbar-width:thin}
   .table-wrap table{width:1080px;min-width:1080px}
   #advancesTable th,#advancesTable td{white-space:nowrap}
   #advancesTable th:nth-child(1),#advancesTable td:nth-child(1){width:46px;min-width:46px}
