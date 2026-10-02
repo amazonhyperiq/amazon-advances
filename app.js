@@ -4,7 +4,7 @@ const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // Web Push configuration. IMPORTANT: this must be the 65-byte VAPID public key (usually 87 base64url characters).
 // Do not put VAPID_PRIVATE_KEY here.
-const PUSH_VAPID_PUBLIC_KEY = "BDusLAaC8fAabE_OtVmFtYsjBhJ0idkGcFpPOiddCDqN7iai6hsegQml7lb9JM2PhIcFJKJmc1u3CONmSvplN9Q";
+const PUSH_VAPID_PUBLIC_KEY = "BKr8bAqliSKJYef6L974YhlnjPzWUqBI4tw9zw4fpihhv0E6Aw-pI5iN2ZLIv-P7klAvkVTJRXYldnd1hQfPzsg";
 
 
 
