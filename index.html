@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>سلف موظفي وعمال أمازون سوبر ماركت</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+</head>
+<body>
+
+  <div class="auth-screen" id="authScreen">
+    <div class="auth-box">
+      <div class="auth-brand">
+        <img src="logo.jpg" alt="Amazon Super Market">
+        <h1>نظام سلف موظفي وعمال أمازون</h1>
+        <p>تسجيل الدخول</p>
+      </div>
+
+      <div class="auth-panel">
+        <label>اختر اسمك
+          <select id="loginNameSelect" autocomplete="username">
+            <option value="">اختر الاسم</option>
+          </select>
+        </label>
+
+        <div id="loginExisting">
+          <label>كلمة المرور
+            <input id="loginPassword" type="password" autocomplete="current-password" placeholder="كلمة المرور">
+          </label>
+          <button type="button" class="auth-submit" id="loginBtn">دخول</button>
+          <button type="button" class="first-setup-link" id="changePasswordBtn">🔐 تغيير كلمة المرور</button>
+          <button type="button" class="first-setup-link" id="forgotPasswordBtn">🔑 نسيت كلمة المرور</button>
+        </div>
+
+        <button type="button" class="first-setup-link hidden" id="showFirstSetupBtn">أول دخول؟ اختر كلمة مرورك</button>
+
+        <div id="giverFirstSetup" class="hidden">
+          <div class="first-login-note">أول مرة تدخل بهذا الاسم؟ اختر كلمة مرور خاصة بك. لا ترسلها لأي شخص.</div>
+          <label>اختر كلمة المرور
+            <input id="giverNewPassword" type="password" autocomplete="new-password" placeholder="6 أحرف أو أكثر">
+          </label>
+          <label>تأكيد كلمة المرور
+            <input id="giverConfirmPassword" type="password" autocomplete="new-password" placeholder="أعد كتابة كلمة المرور">
+          </label>
+          <button type="button" class="auth-submit" id="giverSetupBtn">حفظ كلمة المرور والدخول</button>
+        </div>
+
+        <div id="changePasswordBox" class="hidden">
+          <div class="first-login-note">تغيير كلمة المرور — يجب إدخال كلمة المرور الحالية.</div>
+          <label>كلمة المرور الحالية
+            <input id="currentPassword" type="password" autocomplete="current-password">
+          </label>
+          <label>كلمة المرور الجديدة
+            <input id="changeNewPassword" type="password" autocomplete="new-password" placeholder="6 أحرف أو أكثر">
+          </label>
+          <label>تأكيد كلمة المرور الجديدة
+            <input id="changeConfirmPassword" type="password" autocomplete="new-password">
+          </label>
+          <button type="button" class="auth-submit" id="saveChangedPasswordBtn">حفظ كلمة المرور الجديدة</button>
+          <button type="button" class="first-setup-link" id="cancelPasswordActionBtn">رجوع</button>
+        </div>
+
+        <div id="passwordRecoveryBox" class="hidden">
+          <div class="first-login-note">إذا كنت قد حفظت كود الاسترجاع سابقاً، استخدمه هنا. وإذا لم تحفظه، يمكنك إنشاء كود جديد وأنت تعرف كلمة المرور الحالية.</div>
+          <button type="button" class="first-setup-link" id="showRecoveryCodeEntryBtn">لدي كود استرجاع — متابعة</button>
+          <div id="recoveryCodeBox" class="hidden">
+            <div class="first-login-note" id="recoveryCodeText"></div>
+            <label>كود الاسترجاع
+              <input id="recoveryCode" type="text" autocomplete="one-time-code">
+            </label>
+            <label>كلمة المرور الجديدة
+              <input id="recoveryNewPassword" type="password" autocomplete="new-password" placeholder="6 أحرف أو أكثر">
+            </label>
+            <label>تأكيد كلمة المرور الجديدة
+              <input id="recoveryConfirmPassword" type="password" autocomplete="new-password">
+            </label>
+            <button type="button" class="auth-submit" id="saveRecoveredPasswordBtn">حفظ واسترجاع الدخول</button>
+          </div>
+          <div class="first-login-note">إنشاء/تغيير كود الاسترجاع يحتاج كلمة المرور الحالية.</div>
+          <label>كلمة المرور الحالية<input id="recoverySetupCurrentPassword" type="password" autocomplete="current-password"></label>
+          <label>كود استرجاع جديد<input id="newRecoveryCode" type="text" placeholder="4 أحرف أو أرقام على الأقل"></label>
+          <button type="button" class="auth-submit" id="saveRecoveryCodeBtn">حفظ كود الاسترجاع</button>
+          <button type="button" class="first-setup-link" id="cancelRecoveryBtn">رجوع</button>
+        </div>
+      </div>
+
+      <div class="auth-error" id="authError"></div>
+    </div>
+  </div>
+
+  <div class="page">
+    <header class="top">
+      <div class="brand">
+        <img src="logo.jpg" alt="Amazon Super Market">
+        <div class="brand-text">
+          <div class="brand-en">AMAZON<br><span>SUPER MARKET</span></div>
+          <div class="brand-ar">أمازون سوبر ماركت</div>
+        </div>
+      </div>
+
+      <div class="title-box">
+        <div class="title">سلف موظفي وعمال أمازون سوبر ماركت</div>
+        <div class="month-title" id="monthTitle">شهر 9 / 2026</div>
+      </div>
+
+      <div class="side-note">
+        <b>معاً</b><br>نصنع<br>مستقبلاً<br>أفضل
+      </div>
+    </header>
+
+    <section class="toolbar">
+      <div class="today">
+        <span>التاريخ اليوم</span>
+        <strong id="today"></strong>
+      </div>
+      <div class="today current-user"><span>المستخدم الحالي</span><strong id="currentUserName"></strong></div>
+      <button class="tool green" id="addBtn"><span class="tool-icon">＋</span><span class="tool-label">إضافة سلفة</span></button>
+      <button class="tool blue manager-only" id="editBtn"><span class="tool-icon">✎</span><span class="tool-label">تعديل السلفة</span></button>
+      <button class="tool red manager-only" id="deleteBtn"><span class="tool-icon">🗑</span><span class="tool-label">حذف السلفة</span></button>
+      <button class="tool navy" id="printBtn"><span class="tool-icon">🖨</span><span class="tool-label">طباعة التقرير</span></button>
+      <button class="tool excel" id="exportBtn"><span class="tool-icon pdf-icon">PDF</span><span class="tool-label">تصدير PDF</span></button>
+      <button class="tool logout" id="logoutBtn"><span class="tool-icon">↪</span><span class="tool-label">تسجيل الخروج</span></button>
+    </section>
+
+    <section class="entry-card">
+      <div class="entry-head">إدخال سلفة جديدة</div>
+      <div class="form-grid">
+        <label>اسم الموظف / العامل
+          <div class="custom-select" id="employeePicker">
+            <select id="employeeSelect" class="native-select"><option value="">اختر الموظف</option></select>
+            <button type="button" class="select-display" data-select="employeeSelect"><span>اختر الموظف</span><b>⌄</b></button>
+            <div class="select-menu">
+              <input type="text" class="select-search" placeholder="🔍 ابحث عن اسم الموظف..." autocomplete="off">
+              <div class="select-options"></div>
+            </div>
+          </div>
+        </label>
+        <label>مبلغ السلفة (د.ع)
+          <input id="amount" type="number" min="1" step="1" placeholder="0">
+        </label>
+        <label>التاريخ
+          <input id="advanceDate" type="date">
+        </label>
+        <label>مانح السلفة
+          <div id="giverReadonly"></div>
+          <div class="custom-select" id="giverPicker">
+            <select id="giverSelect" class="native-select"><option value="">اختر الاسم</option></select>
+            <button type="button" class="select-display" data-select="giverSelect"><span>اختر الاسم</span><b>⌄</b></button>
+            <div class="select-menu">
+              <input type="text" class="select-search" placeholder="🔍 ابحث عن مانح السلفة..." autocomplete="off">
+              <div class="select-options"></div>
+            </div>
+          </div>
+        </label>
+        <label>ملاحظات
+          <input id="notes" type="text" placeholder="">
+        </label>
+      </div>
+    </section>
+
+    <section class="table-wrap">
+      <table id="advancesTable">
+        <thead>
+          <tr>
+            <th>ت</th>
+            <th>رقم العملية</th>
+            <th>التاريخ</th>
+            <th>اسم الموظف / العامل</th>
+            <th>مبلغ السلفة (د.ع)</th>
+            <th>مانح السلفة</th>
+            <th>ملاحظات</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section class="summary-grid">
+      <div class="summary-card">
+        <div class="summary-title brown">مجموع السلف حسب المانح</div>
+        <table id="giverSummary"><thead><tr><th>مانح السلفة</th><th>عدد العمليات</th><th>المجموع (د.ع)</th></tr></thead><tbody></tbody></table>
+      </div>
+
+      <div class="summary-card">
+        <div class="summary-title blue">مجموع السلف لكل موظف</div>
+        <table id="employeeSummary"><thead><tr><th>اسم الموظف / العامل</th><th>عدد السلف</th><th>المجموع (د.ع)</th></tr></thead><tbody></tbody></table>
+      </div>
+
+      <div class="summary-card monthly">
+        <div class="summary-title green2">ملخص الشهر</div>
+        <div class="stat"><span>شهر</span><b id="summaryMonth"></b></div>
+        <div class="stat"><span>عدد العمليات</span><b id="opCount">0</b></div>
+        <div class="stat"><span>عدد الموظفين</span><b id="employeeCount">0</b></div>
+        <div class="stat"><span>عدد المانحين</span><b id="giverCount">0</b></div>
+        <div class="total"><span>المجموع الكلي للسلف</span><b id="grandTotal">0 د.ع</b></div>
+      </div>
+    </section>
+
+    <section class="footer-note">
+      <span>إدارة مالية دقيقة ... لعمل مستقر ومزدهر</span>
+      <span>📍 AMAZON SUPER MARKET</span>
+      <strong>أمازون سوبر ماركت</strong>
+      <span>الالتزام ... ثقة ... نجاح</span>
+    </section>
+
+    <section class="print-details" id="printDetails">
+      <div class="print-details-head">
+        <div>
+          <div class="print-details-title">تفاصيل السلف</div>
+          <div class="print-details-subtitle">تفاصيل جميع السلف المسجلة خلال شهر <span id="detailsMonth"></span></div>
+        </div>
+        <div class="print-details-total">
+          <span>عدد السلف</span>
+          <b id="detailsCount">0</b>
+        </div>
+      </div>
+      <table id="detailsTable">
+        <thead>
+          <tr>
+            <th>ت</th>
+            <th>رقم العملية</th>
+            <th>التاريخ</th>
+            <th>اسم الموظف / العامل</th>
+            <th>مبلغ السلفة (د.ع)</th>
+            <th>مانح السلفة</th>
+            <th>ملاحظات</th>
+          </tr>
+        </thead>
+        <tbody id="printDetailsBody"></tbody>
+      </table>
+    </section>
+  </div>
+
+  <div class="modal" id="peopleModal">
+    <div class="modal-box">
+      <button class="close" id="closePeople">×</button>
+      <h2 id="peopleTitle">إدارة الموظفين والعمال</h2>
+      <div class="inline-form">
+        <input id="personName" placeholder="اكتب اسم واحد">
+        <button id="savePerson" class="primary">إضافة اسم</button>
+      </div>
+      <div class="bulk-people">
+        <label for="bulkPersonNames">إضافة عدة أسماء دفعة واحدة</label>
+        <textarea id="bulkPersonNames" rows="5" placeholder="اكتب كل اسم في سطر مستقل، مثال:
+أحمد علي
+محمد كريم
+علي حسين"></textarea>
+        <button id="savePeopleBulk" class="primary bulk-btn">إضافة جميع الأسماء</button>
+      </div>
+      <div id="peopleList"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="confirmModal">
+    <div class="modal-box small">
+      <h2>تأكيد</h2>
+      <p id="confirmText"></p>
+      <div class="confirm-actions">
+        <button id="confirmYes" class="danger">نعم</button>
+        <button id="confirmNo">إلغاء</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
