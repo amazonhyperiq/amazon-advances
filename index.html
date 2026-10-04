@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>سلف موظفي وعمال أمازون سوبر ماركت</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#39705c">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="سلف الموظفين">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+</head>
+<body>
+
+  <div class="auth-screen" id="authScreen">
+    <div class="auth-box">
+      <div class="auth-brand">
+        <img src="logo.jpg" alt="Amazon Super Market">
+        <h1>نظام سلف موظفي وعمال أمازون</h1>
+        <p>تسجيل الدخول</p>
+      </div>
+
+      <div class="auth-panel">
+        <label>اختر اسمك
+          <select id="loginNameSelect" autocomplete="username">
+            <option value="">اختر الاسم</option>
+          </select>
+        </label>
+
+        <div id="loginExisting">
+          <label>كلمة المرور
+            <input id="loginPassword" type="password" autocomplete="current-password" placeholder="أدخل كلمة المرور">
+          </label>
+          <button type="button" class="auth-submit" id="loginBtn">دخول</button>
+          <button type="button" class="password-link" id="changePasswordBtn">تغيير كلمة المرور</button>
+          <button type="button" class="password-link danger-link" id="forgotPasswordBtn">نسيت كلمة المرور؟</button>
+        </div>
+      </div>
+
+      <div class="auth-error" id="authError"></div>
+    </div>
+  </div>
+
+  <div class="page">
+    <header class="top">
+      <div class="brand">
+        <img src="logo.jpg" alt="Amazon Super Market">
+        <div class="brand-text">
+          <div class="brand-en">AMAZON<br><span>SUPER MARKET</span></div>
+          <div class="brand-ar">أمازون سوبر ماركت</div>
+        </div>
+      </div>
+
+      <div class="title-box">
+        <div class="title">سلف موظفي وعمال أمازون سوبر ماركت</div>
+        <div class="month-title" id="monthTitle">شهر 9 / 2026</div>
+      </div>
+
+      <div class="side-note">
+        <b>معاً</b><br>نصنع<br>مستقبلاً<br>أفضل
+      </div>
+    </header>
+
+    <section class="toolbar main-toolbar">
+      <div class="today"><span>التاريخ اليوم</span><strong id="today"></strong></div>
+      <div class="today current-user"><span>المستخدم الحالي</span><strong id="currentUserName"></strong></div>
+      <button class="tool green main-nav active" id="advancesNav"><span class="tool-icon">💰</span><span class="tool-label">السلف</span></button>
+      <button class="tool blue main-nav" id="leavesNav"><span class="tool-icon">📅</span><span class="tool-label">الغيابات والزمنيات</span></button>
+      <button class="tool red main-nav" id="penaltiesNav"><span class="tool-icon">⚠</span><span class="tool-label">العقوبات</span></button>
+      <button class="tool excel main-nav" id="rewardsNav"><span class="tool-icon">★</span><span class="tool-label">المكافئات</span></button>
+      <button class="tool logout" id="logoutBtn"><span class="tool-icon">↪</span><span class="tool-label">تسجيل الخروج</span></button>
+    </section>
+    <section class="sub-toolbar" id="advancesActions">
+      <button class="sub-tool green" id="addBtn"><span>＋</span>إضافة سلفة</button>
+      <button class="sub-tool blue manager-only" id="editBtn"><span>✎</span>تعديل / حذف سلفة</button>
+      <button class="sub-tool blue manager-only" id="addEmployeeBtn"><span>👤＋</span>إضافة موظف / عامل</button>
+      <button class="sub-tool red manager-only" id="deleteEmployeeBtn"><span>👤🗑</span>حذف موظف / عامل</button>
+      <button class="sub-tool navy" id="printBtn"><span>🖨</span>طباعة التقرير</button>
+      <button class="sub-tool excel" id="exportBtn"><span>PDF</span>تصدير PDF</button>
+    </section>
+
+    <section class="sub-toolbar" id="leavesActions">
+      <button class="sub-tool green" id="addLeaveBtn"><span>＋</span>إضافة إجازة</button>
+      <button class="sub-tool navy" id="leaveDetailsBtn"><span>📋</span>تفاصيل الإجازات</button>
+      <button class="sub-tool excel" id="leaveSummaryBtn"><span>📊</span>ملخص الإجازات</button>
+      <button class="sub-tool navy" id="leavePrintBtn"><span>🖨</span>طباعة</button>
+      <button class="sub-tool excel" id="leavePdfBtn"><span>PDF</span>حفظ PDF</button>
+    </section>
+
+    <section class="entry-card advances-part">
+      <div class="entry-head">إدخال سلفة جديدة</div>
+      <div class="form-grid">
+        <label>اسم الموظف / العامل
+          <div class="custom-select" id="employeePicker">
+            <select id="employeeSelect" class="native-select"><option value="">اختر الموظف</option></select>
+            <button type="button" class="select-display" data-select="employeeSelect"><span>اختر الموظف</span><b>⌄</b></button>
+            <div class="select-menu">
+              <input type="text" class="select-search" placeholder="🔍 ابحث عن اسم الموظف..." autocomplete="off">
+              <div class="select-options"></div>
+            </div>
+          </div>
+        </label>
+        <label>مبلغ السلفة (د.ع)
+          <input id="amount" type="number" min="1" step="1" placeholder="0">
+        </label>
+        <label>التاريخ
+          <input id="advanceDate" type="date">
+        </label>
+        <label>مانح السلفة
+          <div id="giverReadonly"></div>
+          <div class="custom-select" id="giverPicker">
+            <select id="giverSelect" class="native-select"><option value="">اختر الاسم</option></select>
+            <button type="button" class="select-display" data-select="giverSelect"><span>اختر الاسم</span><b>⌄</b></button>
+            <div class="select-menu">
+              <input type="text" class="select-search" placeholder="🔍 ابحث عن مانح السلفة..." autocomplete="off">
+              <div class="select-options"></div>
+            </div>
+          </div>
+        </label>
+        <label>ملاحظات
+          <input id="notes" type="text" placeholder="">
+        </label>
+      </div>
+    </section>
+
+    <section class="table-wrap advances-part">
+      <table id="advancesTable">
+        <thead>
+          <tr>
+            <th>ت</th>
+            <th>رقم العملية</th>
+            <th>التاريخ</th>
+            <th>اسم الموظف / العامل</th>
+            <th>مبلغ السلفة (د.ع)</th>
+            <th>مانح السلفة</th>
+            <th>ملاحظات</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section class="leave-section leaves-part hidden-view" id="leaveSection">
+      <div class="leave-section-head">
+        <div><div class="summary-title blue">سجل الإجازات</div><div class="leave-subtitle">الإجازات اليومية والزمنية كاملة</div></div>
+        <div class="leave-stats"><span>إجمالي الإجازات <b id="leaveCount">0</b></span><span>المجازون الآن <b id="activeLeaveCount">0</b></span></div>
+      </div>
+      <div class="table-wrap leave-table-wrap">
+        <table id="leavesTable"><thead><tr><th>ت</th><th>الموظف / العامل</th><th>النوع</th><th>الفترة</th><th>مانح / مسؤول الإجازة</th><th>ملاحظات</th><th>إجراء</th></tr></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <section class="summary-card leave-summary-card leaves-part hidden-view" id="leaveSummaryCard">
+      <div class="summary-title green2">ملخص الإجازات حسب الموظف</div>
+      <table id="leaveSummary"><thead><tr><th>الموظف / العامل</th><th>عدد الإجازات</th><th>الحالة الآن</th></tr></thead><tbody></tbody></table>
+    </section>
+
+    <section class="summary-grid advances-part">
+      <div class="summary-card">
+        <div class="summary-title brown">مجموع السلف حسب المانح</div>
+        <table id="giverSummary"><thead><tr><th>مانح السلفة</th><th>عدد العمليات</th><th>المجموع (د.ع)</th></tr></thead><tbody></tbody></table>
+      </div>
+
+      <div class="summary-card" id="employeeSummaryCard">
+        <div class="summary-title blue">مجموع السلف لكل موظف</div>
+        <table id="employeeSummary"><thead><tr><th>اسم الموظف / العامل</th><th>عدد السلف</th><th>المجموع (د.ع)</th></tr></thead><tbody></tbody></table>
+      </div>
+
+      <div class="summary-card monthly">
+        <div class="summary-title green2">ملخص الشهر</div>
+        <div class="stat"><span>شهر</span><b id="summaryMonth"></b></div>
+        <div class="stat"><span>عدد العمليات</span><b id="opCount">0</b></div>
+        <div class="stat"><span>عدد الموظفين</span><b id="employeeCount">0</b></div>
+        <div class="stat"><span>عدد المانحين</span><b id="giverCount">0</b></div>
+        <div class="total"><span>المجموع الكلي للسلف</span><b id="grandTotal">0 د.ع</b></div>
+      </div>
+    </section>
+
+    <section class="footer-note">
+      <span>إدارة مالية دقيقة ... لعمل مستقر ومزدهر</span>
+      <span>📍 AMAZON SUPER MARKET</span>
+      <strong>أمازون سوبر ماركت</strong>
+      <span>الالتزام ... ثقة ... نجاح</span>
+    </section>
+
+    <section class="print-details advances-part" id="printDetails">
+      <div class="print-details-head">
+        <div>
+          <div class="print-details-title">تفاصيل السلف</div>
+          <div class="print-details-subtitle">تفاصيل جميع السلف المسجلة خلال شهر <span id="detailsMonth"></span></div>
+        </div>
+        <div class="print-details-total">
+          <span>عدد السلف</span>
+          <b id="detailsCount">0</b>
+        </div>
+      </div>
+      <table id="detailsTable">
+        <thead>
+          <tr>
+            <th>ت</th>
+            <th>رقم العملية</th>
+            <th>التاريخ</th>
+            <th>اسم الموظف / العامل</th>
+            <th>مبلغ السلفة (د.ع)</th>
+            <th>مانح السلفة</th>
+            <th>ملاحظات</th>
+          </tr>
+        </thead>
+        <tbody id="printDetailsBody"></tbody>
+      </table>
+    </section>
+  </div>
+
+  <div class="modal" id="passwordModal">
+    <div class="modal-box small">
+      <button class="close" id="closePassword">×</button>
+      <h2 id="passwordModalTitle">تغيير كلمة المرور</h2>
+      <div id="passwordChangeFields"><label>كلمة المرور الحالية<input id="oldPassword" type="password" autocomplete="current-password"></label></div>
+      <label>كلمة المرور الجديدة<input id="newPassword" type="password" autocomplete="new-password" placeholder="6 أحرف أو أكثر"></label>
+      <label>تأكيد كلمة المرور<input id="confirmPassword" type="password" autocomplete="new-password"></label>
+      <p id="forgotPasswordNote" class="password-note hidden">إعادة تعيين كلمة المرور بعد نسيانها تحتاج اعتماد المدير؛ لن يتم وضع تجاوز غير آمن لكلمة المرور.</p>
+      <button id="savePassword" class="primary password-save-btn">حفظ كلمة المرور</button>
+    </div>
+  </div>
+
+  <div class="modal" id="peopleModal">
+    <div class="modal-box">
+      <button class="close" id="closePeople">×</button>
+      <h2 id="peopleTitle">إدارة الموظفين والعمال</h2>
+      <div class="inline-form">
+        <input id="personName" placeholder="اكتب اسم واحد">
+        <button id="savePerson" class="primary">إضافة اسم</button>
+      </div>
+      <div class="bulk-people">
+        <label for="bulkPersonNames">إضافة عدة أسماء دفعة واحدة</label>
+        <textarea id="bulkPersonNames" rows="5" placeholder="اكتب كل اسم في سطر مستقل، مثال:
+أحمد علي
+محمد كريم
+علي حسين"></textarea>
+        <button id="savePeopleBulk" class="primary bulk-btn">إضافة جميع الأسماء</button>
+      </div>
+      <div id="peopleList"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="leaveModal">
+    <div class="modal-box">
+      <button class="close" id="closeLeave">×</button><h2 id="leaveModalTitle">إضافة إجازة</h2>
+      <div class="leave-form-grid">
+        <label>الموظف / العامل<select id="leaveEmployee"><option value="">اختر الموظف</option></select></label>
+        <label id="leaveGiverWrap">مانح / مسؤول الإجازة<select id="leaveGiver"><option value="">اختر الاسم</option></select></label>
+        <label>نوع الإجازة<select id="leaveType"><option value="day">إجازة بالأيام</option><option value="time">إجازة زمنية</option></select></label>
+      </div>
+      <div id="dayLeaveFields" class="leave-fields"><label>من تاريخ<input id="leaveStartDate" type="date"></label><label>إلى تاريخ<input id="leaveEndDate" type="date"></label></div>
+      <div id="timeLeaveFields" class="leave-fields hidden"><label>التاريخ<input id="leaveDate" type="date"></label><label>من الساعة<input id="leaveStart" type="time"></label><label>إلى الساعة<input id="leaveEnd" type="time"></label></div>
+      <label>ملاحظات<input id="leaveNotes" type="text" placeholder="اختياري"></label>
+      <button id="saveLeave" class="primary leave-save-btn">حفظ الإجازة</button>
+    </div>
+  </div>
+
+  <div class="modal" id="confirmModal">
+    <div class="modal-box small">
+      <h2>تأكيد</h2>
+      <p id="confirmText"></p>
+      <div class="confirm-actions">
+        <button id="confirmYes" class="danger">نعم</button>
+        <button id="confirmNo">إلغاء</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
