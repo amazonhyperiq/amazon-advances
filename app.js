@@ -6,8 +6,6 @@ const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 // Do not put VAPID_PRIVATE_KEY here.
 const PUSH_VAPID_PUBLIC_KEY = "BKr8bAqliSKJYef6L974YhlnjPzWUqBI4tw9zw4fpihhv0E6Aw-pI5iN2ZLIv-P7klAvkVTJRXYldnd1hQfPzsg";
 
-
-
 let authRole = null;
 let authToken = null;
 let authName = null;
@@ -32,29 +30,54 @@ function restoreAuth(){try{
   }
 }catch{}return false;}
 
+// --- دالة تحميل أسماء المانحين والمدراء لجلسة الدخول بشكل مباشر ومؤمن ---
 async function loadGiverLoginList(){
   setAuthError("");
-  // أسماء المانحين في شاشة الدخول تُجلب عبر الدالة الآمنة حتى لا تعتمد على RLS المباشر للجدول.
-  let {data,error}=await db.rpc("get_active_givers_for_login");
-  if(error){
-    // توافق مع النسخ التي لا تحتوي الدالة بعد.
-    const fallback=await db.from("advance_givers").select("id,name,is_active").eq("is_active",true).order("name");
-    data=fallback.data; error=fallback.error;
+  const s = $("loginNameSelect");
+  if (!s) return;
+
+  try {
+    // 1. جلب المانحين مباشرة من جدول advance_givers
+    let { data, error } = await db
+      .from("advance_givers")
+      .select("id, name, is_active")
+      .eq("is_active", true)
+      .order("name");
+
+    // 2. استخدام دالة RPC كخيار احتياطي
+    if (error) {
+      const rpcRes = await db.rpc("get_active_givers_for_login");
+      data = rpcRes.data;
+      error = rpcRes.error;
+    }
+
+    if (error) {
+      console.warn("تنبيه عند جلب القائمة:", error.message);
+    }
+
+    giverLoginList = (data || []).map(g => ({ ...g, password_set: null }));
+
+    // 3. إعادة بناء القائمة المنسدلة
+    s.innerHTML = '<option value="">اختر الاسم</option>';
+    
+    giverLoginList.forEach(g => {
+      s.insertAdjacentHTML("beforeend", `<option value="giver:${escapeHtml(g.id)}">${escapeHtml(g.name)}</option>`);
+    });
+
+    // إدراج خيار المدير دائماً في القائمة
+    s.insertAdjacentHTML("beforeend", '<option value="admin">عمر اسماعيل (المدير)</option>');
+
+    updateUnifiedLoginMode();
+  } catch (err) {
+    setAuthError("تعذر تحميل أسماء المانحين: " + err.message);
   }
-  if(error){setAuthError("تعذر تحميل أسماء المانحين: "+error.message);return;}
-  giverLoginList=(data||[]).map(g=>({...g,password_set:null}));
-  const s=$("loginNameSelect");
-  s.innerHTML='<option value="">اختر الاسم</option>';
-  giverLoginList.forEach(g=>s.insertAdjacentHTML("beforeend",`<option value="giver:${escapeHtml(g.id)}">${escapeHtml(g.name)}</option>`));
-  s.insertAdjacentHTML("beforeend",'<option value="admin">عمر اسماعيل</option>');
-  updateUnifiedLoginMode();
 }
 
 async function revealAdminLogin(){
   if(adminLoginUnlocked)return;
   adminLoginUnlocked=true;
   const s=$("loginNameSelect");
-  if(s && ![...s.options].some(o=>o.value==='admin')) s.insertAdjacentHTML("beforeend",'<option value="admin">عمر اسماعيل</option>');
+  if(s && ![...s.options].some(o=>o.value==='admin')) s.insertAdjacentHTML("beforeend",'<option value="admin">عمر اسماعيل (المدير)</option>');
   setAuthError("تم إظهار اسم المدير على هذا الجهاز");
   setTimeout(()=>setAuthError(""),1800);
 }
@@ -131,8 +154,6 @@ async function giverFirstPassword(){
 
 function logout(){clearAuth();location.reload();}
 
-async function startApp(){applyRoleUI();try{await loadPeople();await loadAdvances();setMainView('advances');}catch(e){console.error(e);toast("تعذر تحميل البيانات: "+(e.message||e));}}
-
 let employees=[], givers=[], advances=[];
 let leaves=[];
 let selectedAdvanceId=null;
@@ -177,8 +198,7 @@ function renderLeaves(){
 }
 function toggleLeaveFields(){
   const type=$('leaveType')?.value;
-  $('dayLeaveFields')?.classList.toggle('hidden',type!=='day');
-  $('timeLeaveFields')?.classList.toggle('hidden',type!=='time');
+  $('dayLeaveFields')?.classList.toggle('hidden',type!=='day');$('timeLeaveFields')?.classList.toggle('hidden',type!=='time');
 }
 function openLeaveModal(id=null){
   if(!authRole) return toast('سجل الدخول أولاً');
@@ -190,10 +210,10 @@ function openLeaveModal(id=null){
   $('leaveGiverWrap').style.display=authRole==='giver'?'none':'';
   if(id){
     const l=leaves.find(x=>x.id===id); if(!l)return;
-    $('leaveEmployee').value=l.employee_id||'';$('leaveGiver').value=l.giver_id||'';$('leaveType').value=l.leave_type||'day';
-    $('leaveStartDate').value=l.start_date||'';$('leaveEndDate').value=l.end_date||'';$('leaveDate').value=l.leave_date||'';$('leaveStart').value=l.start_time||'';$('leaveEnd').value=l.end_time||'';$('leaveNotes').value=l.notes||'';
+    $('leaveEmployee').value=l.employee_id||'';$('leaveGiver').value=l.giver_id\vert{}\vert{}'';$('leaveType').value=l.leave_type||'day';
+    $('leaveStartDate').value=l.start_date\vert{}\vert{}'';$('leaveEndDate').value=l.end_date||'';$('leaveDate').value=l.leave_date\vert{}\vert{}'';$('leaveStart').value=l.start_time||'';$('leaveEnd').value=l.end_time\vert{}\vert{}'';$('leaveNotes').value=l.notes||'';
   }else{
-    $('leaveEmployee').value='';$('leaveGiver').value=authRole==='giver'?(currentGiverId()||''):'';$('leaveType').value='day';$('leaveStartDate').value=isoToday();$('leaveEndDate').value=isoToday();$('leaveDate').value=isoToday();$('leaveStart').value='';$('leaveEnd').value='';$('leaveNotes').value='';
+    $('leaveEmployee').value='';$('leaveGiver').value=authRole==='giver'?(currentGiverId()\vert{}\vert{}''):'';$('leaveType').value='day';$('leaveStartDate').value=isoToday();$('leaveEndDate').value=isoToday();$('leaveDate').value=isoToday();$('leaveStart').value='';$('leaveEnd').value='';$('leaveNotes').value='';
   }
   toggleLeaveFields();$('leaveModal').classList.add('show');
 }
@@ -324,7 +344,6 @@ async function startApp(){
     await loadPeople();
     await loadAdvances();
     await loadLeaves();
-    setMainView('home');
     installAutomaticPushSetup();
     if(window.Notification?.permission==="granted") subscribeForPush().catch(()=>{});
   }catch(e){
@@ -342,12 +361,12 @@ const monthLabel = d => {
   const x = d ? new Date(d+"T00:00:00") : new Date();
   return `${x.getMonth()+1} / ${x.getFullYear()}`;
 };
-function toast(msg){ const t=$("toast"); t.textContent=msg; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),2500); }
+function toast(msg){ const t=$("toast"); if(!t) return; t.textContent=msg; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),2500); }
 
 function setMonthHeader(){
   const d=isoToday();
-  $("monthTitle").textContent=`شهر ${monthLabel(d)}`;
-  $("summaryMonth").textContent=monthLabel(d);
+  if($("monthTitle")) $("monthTitle").textContent=`شهر ${monthLabel(d)}`;
+  if($("summaryMonth")) $("summaryMonth").textContent=monthLabel(d);
 }
 
 async function loadPeople(){
@@ -363,6 +382,7 @@ async function loadPeople(){
 
 function fillSelect(id, data, placeholder){
   const s=$(id);
+  if(!s) return;
   s.innerHTML=`<option value="">${escapeHtml(placeholder)}</option>`;
   data.filter(x=>x.is_active).forEach(x=>s.insertAdjacentHTML("beforeend",`<option value="${escapeHtml(x.id)}">${escapeHtml(x.name)}</option>`));
   refreshCustomSelect(id, placeholder);
@@ -437,17 +457,20 @@ window.addEventListener('scroll',()=>{ document.querySelectorAll('.custom-select
 function initCustomSelects(){
   document.querySelectorAll('.custom-select').forEach(picker=>{
     const select=picker.querySelector('.native-select');
+    if(!select) return;
     const display=picker.querySelector('.select-display');
     const search=picker.querySelector('.select-search');
     const id=select.id;
     const placeholder=select.options[0]?.textContent||'اختر';
-    display.onclick=()=>{
-      if(picker.classList.contains('open')) closeCustomSelect(picker); else openCustomSelect(picker);
-    };
-    display.ondblclick=()=>{
-      if(id==='employeeSelect') openPeople('employees');
-      if(id==='giverSelect') openPeople('givers');
-    };
+    if(display){
+      display.onclick=()=>{
+        if(picker.classList.contains('open')) closeCustomSelect(picker); else openCustomSelect(picker);
+      };
+      display.ondblclick=()=>{
+        if(id==='employeeSelect') openPeople('employees');
+        if(id==='giverSelect') openPeople('givers');
+      };
+    }
     select.addEventListener('change',()=>refreshCustomSelect(id,placeholder));
     search?.addEventListener('input',e=>filterCustomOptions(picker,e.target.value));
     refreshCustomSelect(id,placeholder);
@@ -485,10 +508,10 @@ function colorStyle(name){
 }
 
 function renderAdvances(){
-  // الصفحة الرئيسية تعرض سلف الشهر الحالي فقط. السلف السابقة تبقى محفوظة في قاعدة البيانات.
   const month=currentMonthKey();
   const rows=advances.filter(a=>String(a.advance_date).slice(0,7)===month);
-  const body=$("advancesTable").querySelector("tbody");
+  const body=$("advancesTable")?.querySelector("tbody");
+  if(!body) return;
   body.innerHTML="";
   rows.forEach((a,i)=>{
     const tr=document.createElement("tr");
@@ -532,21 +555,24 @@ function renderSummaries(rows){
     if(!byGiver[gn]) byGiver[gn]={count:0,total:0}; byGiver[gn].count++; byGiver[gn].total+=Number(a.amount);
     if(!byEmp[en]) byEmp[en]={count:0,total:0}; byEmp[en].count++; byEmp[en].total+=Number(a.amount);
   });
-  $("giverSummary").querySelector("tbody").innerHTML=Object.entries(byGiver).map(([n,v])=>`<tr><td>${escapeHtml(n)}</td><td>${v.count}</td><td>${money(v.total)}</td></tr>`).join("") || `<tr><td colspan="3">لا توجد بيانات</td></tr>`;
-  $("employeeSummary").querySelector("tbody").innerHTML=Object.entries(byEmp).map(([n,v])=>`<tr style="background:${personColor(n)}"><td class="person-cell" style="background:${personColor(n)}">${escapeHtml(n)}</td><td>${v.count}</td><td>${money(v.total)}</td></tr>`).join("") || `<tr><td colspan="3">لا توجد بيانات</td></tr>`;
+  if($("giverSummary")?.querySelector("tbody"))
+    $("giverSummary").querySelector("tbody").innerHTML=Object.entries(byGiver).map(([n,v])=>`<tr><td>${escapeHtml(n)}</td><td>${v.count}</td><td>${money(v.total)}</td></tr>`).join("") || `<tr><td colspan="3">لا توجد بيانات</td></tr>`;
+  if($("employeeSummary")?.querySelector("tbody"))
+    $("employeeSummary").querySelector("tbody").innerHTML=Object.entries(byEmp).map(([n,v])=>`<tr style="background:${personColor(n)}"><td class="person-cell" style="background:${personColor(n)}">${escapeHtml(n)}</td><td>${v.count}</td><td>${money(v.total)}</td></tr>`).join("") || `<tr><td colspan="3">لا توجد بيانات</td></tr>`;
+  
   const total=rows.reduce((s,a)=>s+Number(a.amount),0);
-  $("opCount").textContent=rows.length;
-  $("employeeCount").textContent=new Set(rows.map(a=>a.employee_id)).size;
-  $("giverCount").textContent=new Set(rows.map(a=>a.giver_id).filter(Boolean)).size;
-  $("grandTotal").textContent=`${money(total)} د.ع`;
+  if($("opCount")) $("opCount").textContent=rows.length;
+  if($("employeeCount")) $("employeeCount").textContent=new Set(rows.map(a=>a.employee_id)).size;
+  if($("giverCount")) $("giverCount").textContent=new Set(rows.map(a=>a.giver_id).filter(Boolean)).size;
+  if($("grandTotal")) $("grandTotal").textContent=`${money(total)} د.ع`;
   renderPrintDetails(rows);
 }
 
 function renderPrintDetails(rows){
   const body=$("printDetailsBody");
   if(!body) return;
-  $("detailsMonth").textContent=monthLabel(isoToday());
-  $("detailsCount").textContent=rows.length;
+  if($("detailsMonth")) $("detailsMonth").textContent=monthLabel(isoToday());
+  if($("detailsCount")) $("detailsCount").textContent=rows.length;
   body.innerHTML=rows.map((a,i)=>{
     const employeeName=a.employees?.name||"";
     return `<tr style="background:${personColor(employeeName)}">
@@ -577,7 +603,7 @@ async function addAdvance(){
   if(authRole==='giver'){
     ({error}=await db.rpc("create_advance_for_giver",{p_token:authToken,p_employee_id:employee_id,p_amount:amount,p_advance_date:date,p_notes:$("notes").value.trim()||null}));
   }else{
-    ({error}=await db.rpc("create_advance",{p_employee_id:employee_id,p_amount:amount,p_advance_date:date,p_giver_id:$("giverSelect").value||null,p_cashier_id:null,p_notes:$("notes").value.trim()||null}));
+    ({error}=await db.rpc("create_advance",{p_employee_id:employee_id,p_amount:amount,p_advance_date:date,p_giver_id:$("giverSelect").value\vert{}\vert{}null,p_cashier_id:null,p_notes:$("notes").value.trim()||null}));
   }
   if(error) return toast("تعذر حفظ السلفة: "+error.message);
   clearForm();await loadAdvances();
@@ -639,6 +665,7 @@ function openPeople(type){
   $("personName").value="";
   renderPeople(type);
 }
+
 function renderPeople(type){
   const arr={employees,givers}[type];
   $("peopleList").innerHTML=arr.map(p=>`
@@ -650,6 +677,7 @@ function renderPeople(type){
       </span>
     </div>`).join("") || "<p>لا توجد أسماء.</p>";
 }
+
 window.renamePerson=async(type,id)=>{
   const arr={employees,givers}[type], p=arr.find(x=>x.id===id); if(!p)return;
   const n=prompt("الاسم الجديد:",p.name); if(!n?.trim())return;
@@ -658,194 +686,23 @@ window.renamePerson=async(type,id)=>{
   if(error)return toast("تعذر التعديل: "+error.message);
   await loadPeople(); renderPeople(type); toast("تم تعديل الاسم");
 };
+
 window.removePerson=async(type,id)=>{
   const table={employees:"employees",givers:"advance_givers"}[type];
   confirmBox("هل تريد حذف هذا الاسم؟",async()=>{
     const {error}=await db.from(table).delete().eq("id",id);
     if(error){ toast("لا يمكن حذف الاسم إذا كان مرتبطًا بسجلات سابقة."); return; }
-    await loadPeople(); renderPeople(type); toast("تم الحذف");
+    await loadPeople(); renderPeople(type); toast("تم الحذف بنجاح");
   });
 };
 
-async function savePerson(){
-  const type=$("peopleModal").dataset.type, name=$("personName").value.trim();
-  if(!name)return toast("اكتب الاسم");
-  const table={employees:"employees",givers:"advance_givers"}[type];
-  const {error}=await db.from(table).insert({name});
-  if(error)return toast("تعذر الإضافة: "+error.message);
-  $("personName").value=""; await loadPeople(); renderPeople(type); toast("تمت إضافة الاسم");
-}
-
-async function savePeopleBulk(){
-  const type=$("peopleModal").dataset.type;
-  const raw=$("bulkPersonNames").value.trim();
-  if(!raw)return toast("اكتب الأسماء، كل اسم في سطر");
-  const names=[...new Set(raw.split(/\r?\n/).map(x=>x.trim()).filter(Boolean))];
-  const table={employees:"employees",givers:"advance_givers"}[type];
-  const {data:existing,error:readError}=await db.from(table).select("name");
-  if(readError)return toast("تعذر قراءة الأسماء: "+readError.message);
-  const existingSet=new Set((existing||[]).map(x=>x.name.trim()));
-  const rows=names.filter(n=>!existingSet.has(n)).map(name=>({name}));
-  if(!rows.length){ $("bulkPersonNames").value=""; return toast("كل الأسماء موجودة مسبقاً"); }
-  const {error}=await db.from(table).insert(rows);
-  if(error)return toast("تعذر إضافة الأسماء: "+error.message);
-  $("bulkPersonNames").value="";
-  await loadPeople(); renderPeople(type);
-  toast(`تمت إضافة ${rows.length} أسماء`);
-}
-
-async function exportPDF(){
-  const month=currentMonthKey();
-  const report=document.querySelector(".page");
-  if(!window.html2pdf) return toast("تعذر تحميل أداة PDF، أعد تحميل الصفحة");
-  const oldWidth=report.style.width;
-  report.style.width="1180px";
-  const options={
-    margin:[6,6,6,6],
-    filename:`سلف_${month}.pdf`,
-    image:{type:"jpeg",quality:0.98},
-    html2canvas:{scale:2,useCORS:true,backgroundColor:"#ffffff",scrollX:0,scrollY:0},
-    jsPDF:{unit:"mm",format:"a4",orientation:"landscape"},
-    pagebreak:{mode:["css","legacy"],before:".print-details",avoid:[".summary-grid",".print-details-head","tr"]}
-  };
-  try{
-    document.body.classList.add("pdf-exporting");
-    await html2pdf().set(options).from(report).save();
-  }catch(e){
-    console.error(e); toast("تعذر إنشاء ملف PDF");
-  }finally{
-    document.body.classList.remove("pdf-exporting");
-    report.style.width=oldWidth;
-  }
-}
-
-function setMainView(view){
-  const isHome=view==='home';
-  const isAdv=view==='advances';
-  const isLeaves=view==='leaves';
-  const isPen=view==='penalties';
-  const isRewards=view==='rewards';
-
-  $('homeDashboard')?.classList.toggle('hidden-view',!isHome);
-  document.querySelectorAll('.advances-part').forEach(el=>el.classList.toggle('hidden-view',!isAdv));
-  document.querySelectorAll('.leaves-part').forEach(el=>el.classList.toggle('hidden-view',!isLeaves));
-  document.querySelectorAll('.sub-toolbar').forEach(el=>el.classList.remove('show-actions'));
-  if(isAdv) $('advancesActions')?.classList.add('show-actions');
-  if(isLeaves) $('leavesActions')?.classList.add('show-actions');
-
-  document.querySelectorAll('.main-nav').forEach(b=>b.classList.remove('active'));
-  if(isAdv) $('advancesNav')?.classList.add('active');
-  if(isLeaves){ $('leavesNav')?.classList.add('active'); loadLeaves(); }
-  if(isPen) $('penaltiesNav')?.classList.add('active');
-  if(isRewards) $('rewardsNav')?.classList.add('active');
-}
-
-function openPasswordModal(forgot=false){
-  const value=$("loginNameSelect")?.value||"";
-  if(!value || !value.startsWith('giver:')) return setAuthError('اختر اسم المانح أولاً');
-  $('passwordModalTitle').textContent=forgot?'إعادة تعيين كلمة مرور المانح':'تغيير كلمة المرور';
-  $('passwordChangeFields')?.classList.toggle('hidden',forgot);
-  $('forgotManagerFields')?.classList.toggle('hidden',!forgot);
-  $('forgotPasswordNote')?.classList.toggle('hidden',!forgot);
-  $('oldPassword').value=''; $('forgotManagerPassword').value=''; $('newPassword').value=''; $('confirmPassword').value='';
-  $('passwordModal').classList.add('show');
-}
-async function savePasswordChange(){
-  const value=$("loginNameSelect")?.value||"";
-  const id=value.replace(/^giver:/,'');
-  if(!value.startsWith('giver:')) return toast('اختر اسم المانح أولاً');
-  const forgot=$('forgotManagerFields')?.classList.contains('hidden')===false;
-  const p1=$('newPassword').value, p2=$('confirmPassword').value;
-  if(p1.length<6)return toast('كلمة المرور يجب أن تكون 6 أحرف أو أكثر');
-  if(p1!==p2)return toast('كلمتا المرور غير متطابقتين');
-  if(forgot){
-    const managerPassword=$('forgotManagerPassword').value;
-    if(!managerPassword)return toast('أدخل كلمة مرور المدير');
-    const {error}=await db.rpc('advance_manager_reset_giver_password',{p_giver_id:id,p_manager_password:managerPassword,p_new_password:p1});
-    if(error)return toast(error.message.includes('غير صحيحة')?'كلمة مرور المدير غير صحيحة':'تعذر إعادة تعيين كلمة المرور');
-    $('passwordModal').classList.remove('show');
-    toast('تمت إعادة تعيين كلمة مرور المانح بنجاح');
-    return;
-  }
-  const old=$('oldPassword').value;
-  if(!old)return toast('أدخل كلمة المرور الحالية');
-  const {error}=await db.rpc('advance_giver_change_password',{p_giver_id:id,p_old_password:old,p_new_password:p1});
-  if(error)return toast(error.message.includes('غير صحيحة')?'كلمة المرور الحالية غير صحيحة':'تعذر تغيير كلمة المرور');
-  $('passwordModal').classList.remove('show'); toast('تم تغيير كلمة المرور بنجاح');
-}
-function openEmployeeManager(mode){
-  if(authRole!=='manager') return toast('هذه الصلاحية للمدير فقط');
-  $('peopleModal').dataset.type='employees'; $('peopleModal').dataset.mode=mode;
-  $('peopleTitle').textContent=mode==='delete'?'حذف موظف / عامل':'إضافة موظف / عامل';
-  $('peopleModal').classList.add('show'); $('personName').value=''; $('bulkPersonNames').value='';
-  document.querySelector('.inline-form')?.classList.toggle('hidden',mode==='delete');
-  document.querySelector('.bulk-people')?.classList.toggle('hidden',mode==='delete');
-  renderPeople('employees');
-}
-async function init(){
-  registerServiceWorker();
-  $("today").textContent=new Date().toLocaleDateString("en-GB");
-  $("advanceDate").value=isoToday();setMonthHeader();
-  if(restoreAuth()){hideAuthScreen();await startApp();}
-  else{showAuthScreen();await loadGiverLoginList();}
-}
-$("loginBtn").onclick=unifiedLogin;
-$("loginNameSelect").onchange=updateUnifiedLoginMode;
-$("showFirstSetupBtn")?.addEventListener("click",showFirstPasswordSetup);
-$("giverSetupBtn")?.addEventListener("click",giverFirstPassword);
-$("cancelFirstSetupBtn")?.addEventListener("click",()=>{
-  $("giverFirstSetup")?.classList.add("hidden");
-  $("loginExisting")?.classList.remove("hidden");
-  $("giverNewPassword") && ($("giverNewPassword").value="");
-  $("giverConfirmPassword") && ($("giverConfirmPassword").value="");
-  setAuthError("");
-  updateUnifiedLoginMode();
-});
-let logoTapCount=0, logoTapTimer=null;
-document.querySelector(".auth-brand img")?.addEventListener("click",()=>{
-  logoTapCount++;
-  clearTimeout(logoTapTimer);
-  logoTapTimer=setTimeout(()=>{logoTapCount=0;},1800);
-  if(logoTapCount>=5){logoTapCount=0;revealAdminLogin();}
-});
-$("logoutBtn").onclick=logout;
-$("addBtn").onclick=addAdvance;
-$("editBtn").onclick=editAdvance;
-$("deleteBtn")?.addEventListener("click",deleteAdvance);
-$("printBtn").onclick=()=>window.print();
-$("exportBtn").onclick=exportPDF;
-$("advanceDate").onchange=()=>{
-  if($("advanceDate").value.slice(0,7)!==currentMonthKey()){
-    $("advanceDate").value=isoToday();
-    toast("الصفحة تعرض الشهر الحالي فقط");
-  }
+document.addEventListener("DOMContentLoaded", async () => {
+  initCustomSelects();
   setMonthHeader();
-  renderAdvances();
-};
-$("savePeopleBulk").onclick=savePeopleBulk;
-$("closePeople")?.addEventListener('click',()=>{$("peopleModal")?.classList.remove('show');document.querySelector('.inline-form')?.classList.remove('hidden');document.querySelector('.bulk-people')?.classList.remove('hidden');});
-$("savePerson").onclick=savePerson;
-$('closeLeave')?.addEventListener('click',()=>{selectedLeaveId=null;$('leaveModal')?.classList.remove('show');});
-$('leaveType')?.addEventListener('change',toggleLeaveFields);
-$('saveLeave')?.addEventListener('click',saveLeave);
-$('advancesNav')?.addEventListener('click',()=>setMainView('advances'));
-$('leavesNav')?.addEventListener('click',()=>setMainView('leaves'));
-$('penaltiesNav')?.addEventListener('click',()=>{setMainView('penalties');toast('قسم العقوبات سيتم تفعيله في المرحلة القادمة');});
-$('rewardsNav')?.addEventListener('click',()=>{setMainView('rewards');toast('قسم المكافئات سيتم تفعيله في المرحلة القادمة');});
-$('addLeaveBtn')?.addEventListener('click',()=>openLeaveModal());
-$('leaveDetailsBtn')?.addEventListener('click',()=>{ $('leaveSection')?.scrollIntoView({behavior:'smooth',block:'start'}); });
-$('leaveSummaryBtn')?.addEventListener('click',()=>{ $('leaveSummaryCard')?.scrollIntoView({behavior:'smooth',block:'start'}); });
-$('leavePrintBtn')?.addEventListener('click',()=>window.print());
-$('leavePdfBtn')?.addEventListener('click',()=>exportPDF());
-$('addEmployeeBtn')?.addEventListener('click',()=>openEmployeeManager('add'));
-$('deleteEmployeeBtn')?.addEventListener('click',()=>openEmployeeManager('delete'));
-$('changePasswordBtn')?.addEventListener('click',()=>openPasswordModal(false));
-$('forgotPasswordBtn')?.addEventListener('click',()=>openPasswordModal(true));
-$('closePassword')?.addEventListener('click',()=>$('passwordModal')?.classList.remove('show'));
-$('savePassword')?.addEventListener('click',savePasswordChange);
-initCustomSelects();
-
-document.addEventListener("keydown",e=>{
-  if(e.ctrlKey&&e.key==="Enter"){e.preventDefault();addAdvance();}
+  loadGiverLoginList();
+  if (restoreAuth()) {
+    await startApp();
+  } else {
+    showAuthScreen();
+  }
 });
-init();
