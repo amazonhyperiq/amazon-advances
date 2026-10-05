@@ -1,4 +1,4 @@
-const CACHE_NAME = 'amazon-advances-v8';
+const CACHE_NAME = 'amazon-advances-v9';
 const APP_SHELL = [
   './',
   './index.html',
@@ -30,11 +30,13 @@ self.addEventListener('fetch', event => {
   if (new URL(req.url).origin !== self.location.origin) return;
 
   event.respondWith(
-    caches.match(req).then(cached => cached || fetch(req).then(response => {
-      const copy = response.clone();
-      caches.open(CACHE_NAME).then(cache => cache.put(req, copy));
+    fetch(req).then(response => {
+      if (response && response.ok) {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(req, copy));
+      }
       return response;
-    }).catch(() => caches.match('./index.html')))
+    }).catch(() => caches.match(req).then(cached => cached || caches.match('./index.html')))
   );
 });
 

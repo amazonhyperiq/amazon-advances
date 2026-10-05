@@ -220,12 +220,14 @@ async function saveLeave(){
   if(selectedLeaveId) result=await db.from('advance_leaves').update(row).eq('id',selectedLeaveId);
   else result=await db.from('advance_leaves').insert(row);
   if(result.error)return toast('تعذر حفظ الإجازة: '+result.error.message);
-  const wasEdit=!!selectedLeaveId; $('leaveModal').classList.remove('show'); selectedLeaveId=null; await loadLeaves(); toast(wasEdit?'تم تعديل الإجازة':'تم حفظ الإجازة');
+  const wasEdit=!!selectedLeaveId; $('leaveModal').classList.remove('show'); selectedLeaveId=null; await loadLeaves();
+  await emitAdvancePushEvent(wasEdit?'leave_updated':'leave_added',wasEdit?'تعديل إجازة':'إضافة إجازة',wasEdit?'تم تعديل إجازة في نظام سلف موظفي وعمال أمازون':'تمت إضافة إجازة في نظام سلف موظفي وعمال أمازون');
+  toast(wasEdit?'تم تعديل الإجازة':'تم حفظ الإجازة');
 }
 window.editLeave=id=>openLeaveModal(id);
 async function deleteLeave(id){
   if(authRole!=='manager')return toast('الحذف للمدير فقط');
-  confirmBox('هل تريد حذف الإجازة المحددة؟',async()=>{const {error}=await db.from('advance_leaves').delete().eq('id',id);if(error)return toast('تعذر حذف الإجازة: '+error.message);await loadLeaves();toast('تم حذف الإجازة');});
+  confirmBox('هل تريد حذف الإجازة المحددة؟',async()=>{const {error}=await db.from('advance_leaves').delete().eq('id',id);if(error)return toast('تعذر حذف الإجازة: '+error.message);await loadLeaves();await emitAdvancePushEvent('leave_deleted','حذف إجازة','تم حذف إجازة من نظام سلف موظفي وعمال أمازون');toast('تم حذف الإجازة');});
 }
 
 let pushRegistrationPromise=null;
@@ -234,7 +236,7 @@ let pushSetupStarted=false;
 function registerServiceWorker(){
   if(!("serviceWorker" in navigator)) return Promise.resolve(null);
   if(!pushRegistrationPromise){
-    pushRegistrationPromise=navigator.serviceWorker.register("./sw.js").catch(err=>{
+    pushRegistrationPromise=navigator.serviceWorker.register("./sw.js", {updateViaCache:"none"}).catch(err=>{
       console.warn("Service Worker registration failed",err);
       return null;
     });
@@ -324,6 +326,7 @@ async function startApp(){
     await loadPeople();
     await loadAdvances();
     await loadLeaves();
+    try{ await navigator.serviceWorker.ready.then(r=>r.update()); }catch{}
     setMainView('home');
     installAutomaticPushSetup();
     if(window.Notification?.permission==="granted") subscribeForPush().catch(()=>{});
@@ -601,7 +604,9 @@ async function editAdvance(){
     notes:$("notes").value.trim()||null
   }).eq("id",selectedAdvanceId);
   if(error) return toast("تعذر التعديل: "+error.message);
-  clearForm(); await loadAdvances(); toast("تم تعديل السلفة");
+  clearForm(); await loadAdvances();
+  await emitAdvancePushEvent("advance_updated","تعديل سلفة","تم تعديل سلفة في نظام سلف موظفي وعمال أمازون");
+  toast("تم تعديل السلفة");
 }
 
 async function deleteAdvance(){
@@ -610,7 +615,9 @@ async function deleteAdvance(){
   confirmBox("هل تريد حذف السلفة المحددة نهائياً؟",async()=>{
     const {error}=await db.from("advances").delete().eq("id",selectedAdvanceId);
     if(error) return toast("تعذر الحذف: "+error.message);
-    selectedAdvanceId=null; clearForm(); await loadAdvances(); toast("تم حذف السلفة");
+    selectedAdvanceId=null; clearForm(); await loadAdvances();
+    await emitAdvancePushEvent("advance_deleted","حذف سلفة","تم حذف سلفة من نظام سلف موظفي وعمال أمازون");
+    toast("تم حذف السلفة");
   });
 }
 
