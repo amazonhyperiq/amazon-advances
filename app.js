@@ -712,7 +712,21 @@ async function addAdvance(){
   clearForm();
   toast("تمت إضافة السلفة بنجاح");
   try{await subscribeForPush();}catch(err){console.warn("Push setup after advance failed",err);}
-  try{await emitAdvancePushEvent("advance_added","سلفة جديدة","تمت إضافة سلفة جديدة في نظام سلف موظفي وعمال أمازون");}catch(err){console.warn("Advance push event failed",err);}
+
+console.log("PUSH DEBUG: وصل التنفيذ بعد حفظ السلفة");
+
+try {
+  const pushResult = await emitAdvancePushEvent(
+    "advance_added",
+    "سلفة جديدة",
+    "تمت إضافة سلفة جديدة في نظام سلف موظفي وعمال أمازون"
+  );
+  console.log("PUSH DEBUG: نتيجة الإشعار:", pushResult);
+} catch (err) {
+  console.error("PUSH DEBUG: فشل الإشعار:", err);
+  toast("فشل الإشعار؛ افتح Console لمعرفة السبب");
+}
+
 }
 
 async function editAdvance(){
