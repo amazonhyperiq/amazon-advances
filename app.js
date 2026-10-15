@@ -313,24 +313,58 @@ async function subscribeForPush(){
   }
 }
 
-async function emitAdvancePushEvent(eventType,title,body){
-  try{
-    const {data:eventRow,error:insertError}=await db.from("advance_push_events")
-      .insert({event_type:eventType,title,body})
+
+async function emitAdvancePushEvent(eventType, title, body) {
+  try {
+    // 1. إنشاء حدث جديد في قاعدة البيانات
+    const { data: eventRow, error: insertError } = await db
+      .from("advance_push_events")
+      .insert({
+        event_type: eventType,
+        title: title,
+        body: body
+      })
       .select("id")
       .single();
-    if(insertError || !eventRow?.id){ console.warn("Push event insert failed",insertError); return false; }
 
-    const {error:functionError}=await db.functions.invoke("send-push-notifications",{
-      body:{event_id:eventRow.id}
-    });
-    if(functionError){ console.warn("Push sender invoke failed",functionError); return false; }
+    if (insertError) {
+      console.error("فشل إنشاء حدث الإشعار:", insertError);
+      toast("تعذر إنشاء الإشعار: " + insertError.message);
+      return false;
+    }
+
+    if (!eventRow || !eventRow.id) {
+      console.error("لم يُرجع جدول الإشعارات رقم الحدث.");
+      toast("لم يتم إنشاء سجل الإشعار.");
+      return false;
+    }
+
+    // 2. إرسال الحدث إلى خدمة الإشعارات
+    const { data, error: sendError } = await db.functions.invoke(
+      "send-push-notifications",
+      {
+        body: {
+          event_id: eventRow.id
+        }
+      }
+    );
+
+    if (sendError) {
+      console.error("فشل استدعاء خدمة الإشعارات:", sendError);
+      toast("تم تسجيل الحدث لكن فشل الإرسال. راجع Console.");
+      return false;
+    }
+
+    console.log("نتيجة خدمة الإشعارات:", data);
     return true;
-  }catch(err){
-    console.warn("Push event failed",err);
+
+  } catch (error) {
+    console.error("خطأ غير متوقع في الإشعارات:", error);
+    toast("حدث خطأ أثناء إنشاء الإشعار أو إرساله.");
     return false;
   }
 }
+
 
 function installAutomaticPushSetup(){
   if(window.__amazonPushClickInstalled) return;
