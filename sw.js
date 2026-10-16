@@ -1,4 +1,4 @@
-const CACHE_NAME = 'amazon-advances-v14';
+const CACHE_NAME = 'amazon-advances-v15';
 const APP_SHELL = [
   './',
   './index.html',
@@ -51,10 +51,10 @@ self.addEventListener('push', event => {
     badge: './icons/icon-192.png',
     dir: 'rtl',
     lang: 'ar',
-    renotify: false,
+    renotify: true,
     data: { url: data.url || './' },
     // A stable tag makes a repeated delivery of the same event replace, not stack.
-    tag: data.event_id ? `amazon-advances-${data.event_id}` : (data.tag || 'amazon-advances-notification')
+    tag: data.tag || 'amazon-advances-notification'
   };
   event.waitUntil(self.registration.showNotification(title, options));
 });
