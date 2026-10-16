@@ -1425,8 +1425,8 @@ document.querySelector(".auth-brand img")?.addEventListener("click",()=>{
 });
 $("logoutBtn").onclick=logout;
 bindMoneyInput("amount");
-$("addBtn").onclick=addAdvance;
-$("editBtn").onclick=editAdvance;
+$("addBtn")?.addEventListener("click", addAdvance);
+$("editBtn")?.addEventListener("click", editAdvance);
 $("deleteBtn")?.addEventListener("click",deleteAdvance);
 $("printBtn").onclick=()=>window.print();
 $("exportBtn").onclick=exportPDF;
