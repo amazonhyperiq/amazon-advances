@@ -227,7 +227,11 @@ async function saveLeave(){
   else result=await db.from('advance_leaves').insert(row);
   if(result.error)return toast('تعذر حفظ الإجازة: '+result.error.message);
   const wasEdit=!!selectedLeaveId; $('leaveModal').classList.remove('show'); selectedLeaveId=null; await loadLeaves();
-  await emitAdvancePushEvent(wasEdit?'leave_updated':'leave_added',wasEdit?'تعديل إجازة':'إضافة إجازة',wasEdit?'تم تعديل إجازة في نظام سلف موظفي وعمال أمازون':'تمت إضافة إجازة في نظام سلف موظفي وعمال أمازون');
+ await emitAdvancePushEvent(
+  wasEdit ? 'leave_updated' : 'leave_added',
+  '📅 قسم الإجازات والزمنيات',
+  wasEdit ? 'تم تعديل إجازة في نظام سلف موظفي وعمال أمازون' : 'تمت إضافة إجازة جديدة في نظام سلف موظفي وعمال أمازون'
+);
   toast(wasEdit?'تم تعديل الإجازة بنجاح':'تمت إضافة الإجازة بنجاح'); if(!wasEdit) openLeavesMenu(); else openLeavesMenu();
 }
 window.editLeave=id=>openLeaveModal(id);
