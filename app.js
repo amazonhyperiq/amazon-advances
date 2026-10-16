@@ -1443,7 +1443,8 @@ $("closePeople")?.addEventListener('click',()=>{$("peopleModal")?.classList.remo
 $("savePerson").onclick=savePerson;
 $('closeLeave')?.addEventListener('click',()=>{selectedLeaveId=null;$('leaveModal')?.classList.remove('show');openLeavesMenu();});
 $('leaveType')?.addEventListener('change',toggleLeaveFields);
-$('saveLeave')?.addEventListener('click',saveLeave);
+$("#saveLeave")?.addEventListener('click', saveLeave);
+$("#addLeaveBtn")?.addEventListener('click', saveLeave);
 $('homeFromAdvancesBtn')?.addEventListener('click',()=>setMainView('home'));$('sectionFromAdvancesBtn')?.addEventListener('click',openAdvancesMenu);
 $('homeFromLeavesBtn')?.addEventListener('click',()=>setMainView('home'));$('sectionFromLeavesBtn')?.addEventListener('click',openLeavesMenu);$('leaveWorkspaceHomeBtn')?.addEventListener('click',()=>setMainView('home'));$('leaveWorkspaceSectionBtn')?.addEventListener('click',openLeavesMenu);$('leaveWorkspaceAddBtn')?.addEventListener('click',()=>openLeaveWorkspace('add'));$('leaveWorkspaceEditBtn')?.addEventListener('click',()=>openLeaveWorkspace('edit'));
 $('advancesNav')?.addEventListener('click',()=>setMainView('advances'));
