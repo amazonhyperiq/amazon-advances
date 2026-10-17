@@ -208,8 +208,7 @@ async function saveLeave(){
   if(selectedLeaveId && authRole!=='manager') return toast('التعديل للمدير فقط');
   const employee_id=$('leaveEmployee').value,leave_type=$('leaveType').value,notes=$('leaveNotes').value.trim()||null;
   if(!employee_id)return toast('اختر الموظف');
-  const giver_id=authRole==='giver'?currentGiverId():$('leaveGiver').value;
-  if(!giver_id)return toast('تعذر تحديد مانح/مسؤول الإجازة');
+const giver_id = authRole==='giver' ? currentGiverId() : ($('#leaveGiver')?.value || null);
   let row={employee_id,giver_id,leave_type,leave_date:null,start_date:null,end_date:null,start_time:null,end_time:null,notes};
   if(leave_type==='time'){
     const leave_date=$('leaveDate').value,start_time=$('leaveStart').value,end_time=$('leaveEnd').value;
