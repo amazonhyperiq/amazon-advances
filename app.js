@@ -204,51 +204,50 @@ function openLeaveModal(id=null){
   toggleLeaveFields();$('leaveModal').classList.add('show');
 }
 async function saveLeave(){
-  if(!authRole) return toast('سجل الدخول أولاً');
-  if(selectedLeaveId && authRole!=='manager') return toast('التعديل للمدير فقط');
-  const employee_id=$('leaveEmployee').value,leave_type=$('leaveType').value,notes=$('leaveNotes').value.trim()||null;
-  if(!employee_id)return toast('اختر الموظف');
-  const giver_id=authRole==='giver'?currentGiverId():$('leaveGiver').value;
-  if(!giver_id)return toast('تعذر تحديد مانح/مسؤول الإجازة');
-  let row={employee_id,giver_id,leave_type,leave_date:null,start_date:null,end_date:null,start_time:null,end_time:null,notes};
-  if(leave_type==='time'){
-    const leave_date=$('leaveDate').value,start_time=$('leaveStart').value,end_time=$('leaveEnd').value;
-    if(!leave_date||!start_time||!end_time)return toast('أدخل تاريخ ووقت الإجازة');
-    if(start_time>=end_time)return toast('وقت النهاية يجب أن يكون بعد وقت البداية');
-    row.leave_date=leave_date;row.start_time=start_time;row.end_time=end_time;
-  }else{
-    const start_date=$('leaveStartDate').value,end_date=$('leaveEndDate').value;
-    if(!start_date||!end_date)return toast('أدخل تاريخ بداية ونهاية الإجازة');
-    if(end_date<start_date)return toast('تاريخ النهاية يجب أن يكون بعد البداية');
-    row.start_date=start_date;row.end_date=end_date;
-  }
-  let result;
-  if(selectedLeaveId) result=await db.from('advance_leaves').update(row).eq('id',selectedLeaveId);
-  else result=await db.from('advance_leaves').insert(row);
-  if(result.error)return toast('تعذر حفظ الإجازة: '+result.error.message);
-  const wasEdit=!!selectedLeaveId; $('leaveModal').classList.remove('show'); selectedLeaveId=null; await loadLeaves();
-const wasEdit = !!selectedLeaveId;
+    if(!authRole) return toast('سجل الدخول أولاً');
+    if(selectedLeaveId && authRole!=='manager') return toast('التعديل للمدير فقط');
+    const employee_id=$('#leaveEmployee').value, leave_type=$('#leaveType').value, notes=$('#leaveNotes').value.trim()||null;
+    if(!employee_id) return toast('اختر الموظف');
+    const giver_id=authRole==='giver'?currentGiverId():$('#leaveGiver').value;
+    if(!giver_id) return toast('إختر مانح/مسؤول الإجازة');
+    
+    let row={employee_id, giver_id, leave_type, leave_date:null, start_date:null, end_date:null, start_time:null, end_time:null, notes};
+    
+    if(leave_type==='time'){
+        const leave_date=$('#leaveDate').value, start_time=$('#leaveStart').value, end_time=$('#leaveEnd').value;
+        if(!leave_date||!start_time||!end_time) return toast('أدخل تاريخ ووقت الإجازة');
+        if(start_time>=end_time) return toast('وقت النهاية يجب أن يكون بعد وقت بداية');
+        row.leave_date=leave_date; row.start_time=start_time; row.end_time=end_time;
+    } else {
+        const start_date=$('#leaveStartDate').value, end_date=$('#leaveEndDate').value;
+        if(!start_date||!end_date) return toast('أدخل تاريخ بداية ونهاية الإجازة');
+        if(end_date<start_date) return toast('تاريخ النهاية يجب أن يكون بعد بداية');
+        row.start_date=start_date; row.end_date=end_date;
+    }
 
-if(selectedLeaveId) {
-    result = await db.from('advance_leaves').update(row).eq('id', selectedLeaveId);
-} else {
-    result = await db.from('advance_leaves').insert(row);
+    const wasEdit = !!selectedLeaveId;
+    let result;
+
+    if(selectedLeaveId) {
+        result = await db.from('advance_leaves').update(row).eq('id', selectedLeaveId);
+    } else {
+        result = await db.from('advance_leaves').insert(row);
+    }
+
+    if(result.error) return toast('تعذر حفظ الإجازة: ' + result.error.message);
+
+    await emitAdvancePushEvent(
+        wasEdit ? 'leave_updated' : 'leave_added',
+        'قسم الإجازات والزمنيات',
+        wasEdit ? 'تم تعديل إجازة في نظام سلف موظفي وعمال أمأزون' : 'تمت إضافة إجازة جديدة في نظام سلف موظفي وعمال أمأزون'
+    );
+
+    $('#leaveModal').classList.remove('show');
+    selectedLeaveId = null;
+    await loadLeaves();
+    toast(wasEdit ? 'تم تعديل الإجازة بنجاح' : 'تمت إضافة الإجازة بنجاح');
+    openLeavesMenu();
 }
-
-if(result.error) return toast('تعذر حفظ الإجازة: ' + result.error.message);
-
-// استدعاء دالة الإشعارات هنا بعد نجاح الحفظ وقبل إغلاق النافذة
-await emitAdvancePushEvent(
-    wasEdit ? 'leave_updated' : 'leave_added',
-    'قسم الإجازات والزمنيات',
-    wasEdit ? 'تم تعديل إجازة في نظام سلف موظفي وعمال أمأزون' : 'تمت إضافة إجازة جديدة في نظام سلف موظفي وعمال أمأزون'
-);
-
-$('[leaveModal]').classList.remove('show'); 
-selectedLeaveId = null; 
-await loadLeaves();
-toast(wasEdit ? 'تم تعديل الإجازة بنجاح' : 'تمت إضافة الإجازة بنجاح');
-if(!wasEdit) openLeavesMenu(); else openLeavesMenu();
 window.editLeave=id=>openLeaveModal(id);
 async function deleteLeave(id){
   if(authRole!=='manager')return toast('الحذف للمدير فقط');
