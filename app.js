@@ -19,7 +19,7 @@ function setAuthBusy(id,busy,label){const b=$(id);if(!b)return;b.disabled=busy;i
 function showAuthScreen(){$("authScreen")?.classList.remove("hidden");document.body.classList.remove("giver-mode");}
 function hideAuthScreen(){$("authScreen")?.classList.add("hidden");}
 function applyRoleUI(){const giverMode=authRole==='giver';document.body.classList.toggle("giver-mode",giverMode);$("currentUserName").textContent=authName||"";const ro=$("giverReadonly");if(ro){ro.textContent=giverMode?`✓ ${authName}`:"";ro.style.display=giverMode?'block':'none';}if(giverMode){$("giverSelect").value="";refreshCustomSelect("giverSelect","اختر الاسم");}}
-function saveAuth(role,token,name){authRole=role;authToken=token;authName=name;localStorage.setItem("advance_auth",JSON.stringify({role,token,name}));hideAuthScreen();applyRoleUI();}
+function saveAuth(role,token,name){authRole=role;authToken=token;authName=name;localStorage.setItem("advance_auth",JSON.stringify({role,token,name}));hideAuthScreen();applyRoleUI(); requestBrowserNotificationPermission();}
 function clearAuth(){authRole=null;authToken=null;authName=null;localStorage.removeItem("advance_auth");sessionStorage.removeItem("advance_auth");}
 function restoreAuth(){try{
   const raw=localStorage.getItem("advance_auth")||sessionStorage.getItem("advance_auth");
@@ -32,18 +32,34 @@ function restoreAuth(){try{
   }
 }catch{}return false;}
 
+// --- نظام إشعارات المتصفح الداخلية البسيطة والموثوقة ---
+function requestBrowserNotificationPermission() {
+  if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
+    Notification.requestPermission().catch(() => {});
+  }
+}
+
+function showBrowserNotification(title, bodyText) {
+  if ("Notification" in window && Notification.permission === "granted") {
+    try {
+      new Notification(title, {
+        body: bodyText,
+        icon: "logo.jpg"
+      });
+    } catch (e) {
+      console.warn("Notification display failed", e);
+    }
+  }
+}
+
 async function loadGiverLoginList(){
   setAuthError("");
-  // أسماء المانحين في شاشة الدخول تُجلب عبر الدالة الآمنة حتى لا تعتمد على RLS المباشر للجدول.
   let {data,error}=await db.rpc("get_active_givers_for_login");
   if(error){
-    // توافق مع النسخ التي لا تحتوي الدالة بعد.
     const fallback=await db.from("advance_givers").select("id,name,is_active").eq("is_active",true).order("name");
     data=fallback.data; error=fallback.error;
   }
   if(error){setAuthError("تعذر تحميل أسماء المانحين: "+error.message);return;}
-  // إذا أعادت دالة الدخول قائمة فارغة لأي سبب (مثل نسخة قديمة من الدالة أو كاش المخطط)،
-  // نعيد القراءة مباشرة من advance_givers قبل عرض الشاشة حتى لا تبقى القائمة فارغة.
   if(!error && (!data || data.length===0)) {
     const direct=await db.from("advance_givers").select("id,name,is_active").eq("is_active",true).order("name",{ascending:true});
     if(!direct.error && Array.isArray(direct.data) && direct.data.length) data=direct.data;
@@ -208,7 +224,7 @@ async function saveLeave(){
   if(selectedLeaveId && authRole!=='manager') return toast('التعديل للمدير فقط');
   const employee_id=$('leaveEmployee').value,leave_type=$('leaveType').value,notes=$('leaveNotes').value.trim()||null;
   if(!employee_id)return toast('اختر الموظف');
-const giver_id = authRole==='giver' ? currentGiverId() : ($('#leaveGiver')?.value || null);
+  const giver_id = authRole==='giver' ? currentGiverId() : ($('#leaveGiver')?.value || null);
   let row={employee_id,giver_id,leave_type,leave_date:null,start_date:null,end_date:null,start_time:null,end_time:null,notes};
   if(leave_type==='time'){
     const leave_date=$('leaveDate').value,start_time=$('leaveStart').value,end_time=$('leaveEnd').value;
@@ -226,170 +242,40 @@ const giver_id = authRole==='giver' ? currentGiverId() : ($('#leaveGiver')?.valu
   else result=await db.from('advance_leaves').insert(row);
   if(result.error)return toast('تعذر حفظ الإجازة: '+result.error.message);
   const wasEdit=!!selectedLeaveId; $('leaveModal').classList.remove('show'); selectedLeaveId=null; await loadLeaves();
-  await emitAdvancePushEvent(wasEdit?'leave_updated':'leave_added',wasEdit?'تعديل إجازة':'إضافة إجازة',wasEdit?'تم تعديل إجازة في نظام سلف موظفي وعمال أمازون':'تمت إضافة إجازة في نظام سلف موظفي وعمال أمازون');
+  
+  // إشعار المتصفح الفوري
+  showBrowserNotification(wasEdit ? "تعديل إجازة" : "إضافة إجازة", wasEdit ? "تم تعديل إجازة في نظام أمازون" : "تمت إضافة إجازة جديدة بنجاح");
+
   toast(wasEdit?'تم تعديل الإجازة بنجاح':'تمت إضافة الإجازة بنجاح'); if(!wasEdit) openLeavesMenu(); else openLeavesMenu();
 }
 window.editLeave=id=>openLeaveModal(id);
 async function deleteLeave(id){
   if(authRole!=='manager')return toast('الحذف للمدير فقط');
-  confirmBox('هل تريد حذف الإجازة المحددة؟',async()=>{const {error}=await db.from('advance_leaves').delete().eq('id',id);if(error)return toast('تعذر حذف الإجازة: '+error.message);await loadLeaves();await emitAdvancePushEvent('leave_deleted','حذف إجازة','تم حذف إجازة من نظام سلف موظفي وعمال أمازون');toast('تم حذف الإجازة بنجاح');});
+  confirmBox('هل تريد حذف الإجازة المحددة؟',async()=>{
+    const {error}=await db.from('advance_leaves').delete().eq('id',id);
+    if(error)return toast('تعذر حذف الإجازة: '+error.message);
+    await loadLeaves();
+    showBrowserNotification("حذف إجازة", "تم حذف إجازة من النظام");
+    toast('تم حذف الإجازة بنجاح');
+  });
 }
-
-let pushRegistrationPromise=null;
-let pushSetupStarted=false;
 
 function registerServiceWorker(){
   if(!("serviceWorker" in navigator)) return Promise.resolve(null);
-  if(!pushRegistrationPromise){
-    pushRegistrationPromise=navigator.serviceWorker.register("./sw.js", {updateViaCache:"none"}).catch(err=>{
-      console.warn("Service Worker registration failed",err);
-      return null;
-    });
-  }
-  return pushRegistrationPromise;
-}
-
-function urlBase64ToUint8Array(base64String){
-  const padding="=".repeat((4-base64String.length%4)%4);
-  const rawData=atob((base64String+padding).replace(/-/g,"+").replace(/_/g,"/"));
-  return Uint8Array.from([...rawData].map(c=>c.charCodeAt(0)));
-}
-
-async function subscribeForPush(){
-  if(pushSetupStarted) return false;
-  if(!authRole || !("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return false;
-  if(!PUSH_VAPID_PUBLIC_KEY || PUSH_VAPID_PUBLIC_KEY.length < 80){
-    console.warn("Web Push public key is not configured.");
-    return false;
-  }
-  if(Notification.permission==="denied") return false;
-  pushSetupStarted=true;
-  try{
-    const permission=Notification.permission==="granted" ? "granted" : await Notification.requestPermission();
-    if(permission!=="granted") return false;
-    const registration=await navigator.serviceWorker.ready;
-    const expectedKey=urlBase64ToUint8Array(PUSH_VAPID_PUBLIC_KEY);
-    let subscription=await registration.pushManager.getSubscription();
-
-    // Remove only this device's stale subscription if it was created with another VAPID key.
-    if(subscription){
-      const currentKey=subscription.options?.applicationServerKey;
-      const currentBytes=currentKey ? new Uint8Array(currentKey) : null;
-      const keyMatches=!!currentBytes && currentBytes.length===expectedKey.length &&
-        currentBytes.every((value,index)=>value===expectedKey[index]);
-      if(!keyMatches){
-        await subscription.unsubscribe();
-        subscription=null;
-      }
-    }
-    if(!subscription){
-      subscription=await registration.pushManager.subscribe({
-        userVisibleOnly:true,
-        applicationServerKey:expectedKey
-      });
-    }
-    const json=subscription.toJSON();
-    if(!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) return false;
-    const {error}=await db.rpc("save_advance_push_subscription",{
-      p_endpoint:json.endpoint,
-      p_p256dh:json.keys.p256dh,
-      p_auth:json.keys.auth,
-      p_role:authRole,
-      p_display_name:authName||null,
-      p_user_agent:navigator.userAgent
-    });
-    if(error){
-      console.warn("Push subscription save failed",error);
-      return false;
-    }
-    localStorage.setItem("advance_push_registered","1");
-    return true;
-  }catch(err){
-    console.warn("Push setup failed",err);
-    return false;
-  }finally{
-    pushSetupStarted=false;
-  }
-}
-
-
-async function emitAdvancePushEvent(eventType, title, body) {
-  try {
-    // 1. إنشاء حدث جديد في قاعدة البيانات
-    const { data: eventRow, error: insertError } = await db
-      .from("advance_push_events")
-      .insert({
-        event_type: eventType,
-        title: title,
-        body: body
-      })
-      .select("id")
-      .single();
-
-    if (insertError) {
-      console.error("فشل إنشاء حدث الإشعار:", insertError);
-      toast("تعذر إنشاء الإشعار: " + insertError.message);
-      return false;
-    }
-
-    if (!eventRow || !eventRow.id) {
-      console.error("لم يُرجع جدول الإشعارات رقم الحدث.");
-      toast("لم يتم إنشاء سجل الإشعار.");
-      return false;
-    }
-
-    // 2. إرسال الحدث إلى خدمة الإشعارات
-    const { data, error: sendError } = await db.functions.invoke(
-      "send-push-notifications",
-      {
-        body: {
-          event_id: eventRow.id
-        }
-      }
-    );
-
-    if (sendError) {
-      console.error("فشل استدعاء خدمة الإشعارات:", sendError);
-      toast("تم تسجيل الحدث لكن فشل الإرسال. راجع Console.");
-      return false;
-    }
-
-    console.log("نتيجة خدمة الإشعارات:", data);
-    return true;
-
-  } catch (error) {
-    console.error("خطأ غير متوقع في الإشعارات:", error);
-    toast("حدث خطأ أثناء إنشاء الإشعار أو إرساله.");
-    return false;
-  }
-}
-
-
-function installAutomaticPushSetup(){
-  if(window.__amazonPushClickInstalled) return;
-  window.__amazonPushClickInstalled=true;
-  const handler=()=>{
-    if(!authRole) return;
-    subscribeForPush().catch(()=>{});
-    if(window.Notification?.permission==="granted" || localStorage.getItem("advance_push_registered")=="1")
-      document.removeEventListener("click",handler,true);
-  };
-  document.addEventListener("click",handler,true);
+  return navigator.serviceWorker.register("./sw.js", {updateViaCache:"none"}).catch(()=>null);
 }
 
 async function startApp(){
   applyRoleUI();
   try{
-    await registerServiceWorker();
+    registerServiceWorker();
     await loadPeople();
     await loadAdvances();
     await loadLeaves();
     await loadSalaries();
     await loadPenalties();
-    try{ await navigator.serviceWorker.ready.then(r=>r.update()); }catch{}
     setMainView('home');
-    installAutomaticPushSetup();
-    if(window.Notification?.permission==="granted") subscribeForPush().catch(()=>{});
+    requestBrowserNotificationPermission();
   }catch(e){
     console.error(e);
     toast("تعذر تحميل البيانات: "+(e.message||e));
@@ -530,7 +416,6 @@ async function loadAdvances(){
   let result=await db.from("advances").select(selectWithNames)
     .order("advance_date",{ascending:false}).order("created_at",{ascending:false});
   if(result.error){
-    console.warn("Advance joined load failed; retrying without embedded relations",result.error);
     const fallback=await db.from("advances").select("id,operation_no,employee_id,giver_id,amount,advance_date,notes")
       .order("advance_date",{ascending:false});
     if(fallback.error) throw fallback.error;
@@ -559,7 +444,6 @@ function colorStyle(name){
 }
 
 function renderAdvances(){
-  // الصفحة الرئيسية تعرض سلف الشهر الحالي فقط. السلف السابقة تبقى محفوظة في قاعدة البيانات.
   const month=currentMonthKey();
   const rows=advances.filter(a=>String(a.advance_date).slice(0,7)===month);
   const body=$("advancesTable").querySelector("tbody");
@@ -695,37 +579,21 @@ async function addAdvance(){
       result=await db.rpc("create_advance",{p_employee_id:employee_id,p_amount:amount,p_advance_date:date,p_giver_id:$("giverSelect").value||null,p_cashier_id:null,p_notes:notes});
     }
   }catch(err){
-    console.error("addAdvance RPC exception",err);
     return toast("تعذر حفظ السلفة: "+(err?.message||"خطأ غير معروف"));
   }
   if(result?.error){
-    console.error("addAdvance RPC error",result.error);
     const detail=result.error.hint||result.error.details||result.error.message||"خطأ غير معروف";
     return toast("تعذر حفظ السلفة: "+detail);
   }
-  try{await loadAdvances();}
-  catch(err){
-    console.error("advance refresh failed after successful insert",err);
+  try{await loadAdvances();}catch(err){
     return toast("تمت إضافة السلفة، لكن تعذر تحديث الجدول: "+(err?.message||"خطأ غير معروف"));
   }
   clearForm();
+  
+  // إشعار المتصفح الفوري عند حفظ السلفة
+  showBrowserNotification("سلفة جديدة", "تمت إضافة سلفة جديدة في نظام أمازون");
+
   toast("تمت إضافة السلفة بنجاح");
-  try{await subscribeForPush();}catch(err){console.warn("Push setup after advance failed",err);}
-
-console.log("PUSH DEBUG: وصل التنفيذ بعد حفظ السلفة");
-
-try {
-  const pushResult = await emitAdvancePushEvent(
-    "advance_added",
-    "سلفة جديدة",
-    "تمت إضافة سلفة جديدة في نظام سلف موظفي وعمال أمازون"
-  );
-  console.log("PUSH DEBUG: نتيجة الإشعار:", pushResult);
-} catch (err) {
-  console.error("PUSH DEBUG: فشل الإشعار:", err);
-  toast("فشل الإشعار؛ افتح Console لمعرفة السبب");
-}
-
 }
 
 async function editAdvance(){
@@ -744,7 +612,7 @@ async function editAdvance(){
   }).eq("id",selectedAdvanceId);
   if(error) return toast("تعذر التعديل: "+error.message);
   clearForm(); await loadAdvances();
-  await emitAdvancePushEvent("advance_updated","تعديل سلفة","تم تعديل سلفة في نظام سلف موظفي وعمال أمازون");
+  showBrowserNotification("تعديل سلفة", "تم تعديل سلفة في نظام أمازون");
   toast("تم تعديل السلفة بنجاح");
 }
 
@@ -755,7 +623,7 @@ async function deleteAdvance(){
     const {error}=await db.from("advances").delete().eq("id",selectedAdvanceId);
     if(error) return toast("تعذر الحذف: "+error.message);
     selectedAdvanceId=null; clearForm(); await loadAdvances();
-    await emitAdvancePushEvent("advance_deleted","حذف سلفة","تم حذف سلفة من نظام سلف موظفي وعمال أمازون");
+    showBrowserNotification("حذف سلفة", "تم حذف سلفة من النظام");
     toast("تم حذف السلفة بنجاح");
   });
 }
@@ -865,10 +733,7 @@ async function exportPDF(){
   }
 }
 
-
-function monthKeyFromDate(value){
-  return String(value||'').slice(0,7);
-}
+function monthKeyFromDate(value){ return String(value||'').slice(0,7); }
 
 function getAdvanceMonths(){
   const set=new Set((advances||[]).map(a=>monthKeyFromDate(a.advance_date)).filter(Boolean));
@@ -954,11 +819,6 @@ function renderEmployeeAdvanceDetails(){
   if($('employeeDetailsTotal'))$('employeeDetailsTotal').textContent=`${money(rows.reduce((sum,a)=>sum+Number(a.amount||0),0))} د.ع`;
 }
 
-
-function leaveMonthKeyFromRecord(l){
-  if(l.leave_type==='time') return monthKeyFromDate(l.leave_date);
-  return null;
-}
 function leaveOverlapsMonth(l, month){
   if(!month) return true;
   if(l.leave_type==='time') return monthKeyFromDate(l.leave_date)===month;
@@ -971,6 +831,7 @@ function leaveOverlapsMonth(l, month){
   const nextMonth=`${next.getFullYear()}-${String(next.getMonth()+1).padStart(2,'0')}-01`;
   return start<nextMonth && end>=monthStart;
 }
+
 function leaveDayCountForMonth(l, month){
   if(l.leave_type==='time') return 0;
   const start=new Date((l.start_date||'')+'T00:00:00');
@@ -984,6 +845,7 @@ function leaveDayCountForMonth(l, month){
   const b=end<me?end:me;
   return b>=a?Math.floor((b-a)/86400000)+1:0;
 }
+
 function getLeaveMonths(){
   const set=new Set();
   (leaves||[]).forEach(l=>{
@@ -998,6 +860,7 @@ function getLeaveMonths(){
   set.add(currentMonthKey());
   return [...set].sort((a,b)=>b.localeCompare(a));
 }
+
 function fillLeaveReportMonths(){
   const months=getLeaveMonths();
   ['allLeavesMonth','employeeLeavesMonth'].forEach(id=>{
@@ -1007,6 +870,7 @@ function fillLeaveReportMonths(){
     s.value=months.includes(current)?current:'';
   });
 }
+
 function renderAllLeaveDetails(){
   const body=$('allLeavesDetailsBody'); if(!body)return;
   const month=$('allLeavesMonth')?.value||'';
@@ -1018,6 +882,7 @@ function renderAllLeaveDetails(){
   if($('allLeavesCount'))$('allLeavesCount').textContent=String(rows.length);
   if($('allLeavesDays'))$('allLeavesDays').textContent=String(rows.reduce((sum,l)=>sum+leaveDayCountForMonth(l,month),0));
 }
+
 function renderEmployeeLeaveReport(){
   const month=$('employeeLeavesMonth')?.value||'';
   const summaryBody=$('employeeLeavesSummaryBody');
@@ -1042,12 +907,14 @@ function renderEmployeeLeaveReport(){
   if($('employeeLeavesDays'))$('employeeLeavesDays').textContent=String(selected.reduce((sum,l)=>sum+leaveDayCountForMonth(l,month),0));
   if($('employeeLeavesTimeCount'))$('employeeLeavesTimeCount').textContent=String(selected.filter(l=>l.leave_type==='time').length);
 }
+
 function fillLeaveEmployeeSelect(){
   const s=$('leaveDetailsEmployeeSelect');if(!s)return;
   const current=s.value||'';
   s.innerHTML='<option value="">اختر الموظف / العامل</option>'+employees.slice().sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'ar')).map(e=>`<option value="${escapeHtml(e.id)}">${escapeHtml(e.name)}</option>`).join('');
   if(current)s.value=current;applyEmployeeSelectColor('leaveDetailsEmployeeSelect');
 }
+
 function openLeavesMenu(){
   document.querySelectorAll('.leaves-part').forEach(el=>el.classList.add('hidden-view'));
   $('leavesMenu')?.classList.remove('hidden-view');
@@ -1056,6 +923,7 @@ function openLeavesMenu(){
   $('leavesWorkspaceActions')?.classList.add('hidden-view');
   window.scrollTo({top:0,behavior:'smooth'});
 }
+
 function openLeaveWorkspace(mode){
   $('leavesMenu')?.classList.add('hidden-view');
   $('leaveDetailsAll')?.classList.toggle('hidden-view',mode!=='all');
@@ -1079,7 +947,7 @@ function openAdvanceWorkspace(mode){
   $('advanceDetailsAll')?.classList.toggle('hidden-view',mode!=='all');
   $('advanceDetailsEmployee')?.classList.toggle('hidden-view',mode!=='employee');
   const showMain=['add','edit','print','pdf'].includes(mode);
-  document.querySelectorAll('.advances-part').forEach(el=>el.classList.toggle('hidden-view',!showMain));
+  document.querySelectorAll('.advances-part,.leaves-part,.sub-toolbar').forEach(el=>{if(el.classList.contains('advances-part'))el.classList.toggle('hidden-view',!showMain);});
   document.querySelectorAll('.advance-report-only').forEach(el=>el.classList.toggle('hidden-view',!['print','pdf'].includes(mode)));
   $('advancesWorkspaceActions')?.classList.toggle('hidden-view',!['add','edit'].includes(mode));
   if(mode==='add'){
@@ -1122,38 +990,28 @@ function setMainView(view){
 }
 
 let salaries=[], penalties=[], selectedPenaltyId=null;
-let salarySearchTarget='';
 function salaryMonthKey(v){return String(v||'').slice(0,7)}
-function monthListFromData(){const s=new Set([currentMonthKey()]);salaries.forEach(x=>x.salary_month&&s.add(salaryMonthKey(x.salary_month)));advances.forEach(x=>s.add(monthKeyFromDate(x.advance_date)));leaves.forEach(x=>{const k=x.leave_type==='time'?monthKeyFromDate(x.leave_date):monthKeyFromDate(x.start_date);if(k)s.add(k)});penalties.forEach(x=>s.add(monthKeyFromDate(x.penalty_date)));return [...s].filter(Boolean).sort((a,b)=>b.localeCompare(a));}
-function fillMonthSelect(id,all=true){const s=$(id);if(!s)return;const old=s.value;const ms=monthListFromData();const preferred=old||currentMonthKey();s.innerHTML=(all?'<option value="">جميع الأشهر</option>':'<option value="">اختر الشهر</option>')+ms.map(m=>`<option value="${m}">${monthOptionLabel(m)}</option>`).join('');if(ms.includes(preferred))s.value=preferred;updateSalaryMonthDisplay(id);}
-function updateSalaryMonthDisplay(id){const s=$(id);if(!s)return;const label=monthOptionLabel(s.value||currentMonthKey());const map={salaryReportMonth:'salaryReportMonthTitle',salaryEmployeeMonth:'salaryEmployeeMonthTitle',salaryMonthInput:null};if(map[id]&&$(map[id]))$(map[id]).textContent=`الشهر: ${label}`;if(id==='salaryMonthInput'){const hiddenTitle=$('salaryEntryMonthTitle');if(hiddenTitle)hiddenTitle.textContent=`الشهر: ${label}`;}}
-function applyEmployeeSelectColor(id){const s=$(id);if(!s)return;const name=(employees||[]).find(e=>String(e.id)===String(s.value))?.name||'';if(name){const c=personColor(name);s.style.backgroundColor=c;s.style.fontWeight='800';s.style.color='#18382e';s.style.borderColor='#9bb9aa';}else{s.style.backgroundColor='';s.style.fontWeight='';s.style.color='';s.style.borderColor='';}}
-function fillSalaryEmployeeSelects(){['salaryEmployeeInput','salaryEmployeeSelect','penaltyEmployee','penaltyEmployeeSelect'].forEach(id=>{const s=$(id);if(!s)return;const cur=s.value;s.innerHTML='<option value="">اختر الموظف / العامل</option>'+(employees||[]).filter(x=>x.is_active!==false).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'ar')).map(e=>`<option value="${e.id}">${escapeHtml(e.name)}</option>`).join('');if(cur)s.value=cur;applyEmployeeSelectColor(id);s.onchange=()=>{applyEmployeeSelectColor(id);if(id==='salaryEmployeeInput'||id==='salaryEmployeeSelect')renderSalaryEmployeePicker(id);};});renderSalaryEmployeePicker();}
-function renderSalaryEmployeePicker(changedId){const inputIds=['salaryEmployeeInput','salaryEmployeeSelect'];inputIds.forEach(id=>{const s=$(id);if(!s)return;const name=(employees||[]).find(e=>String(e.id)===String(s.value))?.name||'';const selectedId=id==='salaryEmployeeInput'?'salaryEmployeeEntrySelected':'salaryEmployeeSelected';const display=$(selectedId);if(display)display.textContent=name||'اختر الموظف / العامل';if(name&&display){display.style.background=personColor(name);display.style.fontWeight='800';display.style.color='#18382e';}else if(display){display.style.background='';display.style.fontWeight='';display.style.color='';}});}
+function fillMonthSelect(id,all=true){const s=$(id);if(!s)return;const old=s.value;const ms=[currentMonthKey()];s.innerHTML=(all?'<option value="">جميع الأشهر</option>':'<option value="">اختر الشهر</option>')+ms.map(m=>`<option value="${m}">${monthOptionLabel(m)}</option>`).join('');if(ms.includes(old))s.value=old;}
+function updateSalaryMonthDisplay(id){const s=\$(id);if(!s)return;const label=monthOptionLabel(s.value||currentMonthKey());const map={salaryReportMonth:'salaryReportMonthTitle',salaryEmployeeMonth:'salaryEmployeeMonthTitle'};if(map[id]&&$(map[id]))$(map[id]).textContent=`الشهر: ${label}`;}
+function applyEmployeeSelectColor(id){const s=\$(id);if(!s)return;const name=(employees||[]).find(e=>String(e.id)===String(s.value))?.name||'';if(name){const c=personColor(name);s.style.backgroundColor=c;s.style.fontWeight='800';s.style.color='#18382e';s.style.borderColor='#9bb9aa';}else{s.style.backgroundColor='';s.style.fontWeight='';s.style.color='';s.style.borderColor='';}}
+function fillSalaryEmployeeSelects(){['salaryEmployeeInput','salaryEmployeeSelect','penaltyEmployee','penaltyEmployeeSelect'].forEach(id=>{const s=\$(id);if(!s)return;const cur=s.value;s.innerHTML='<option value="">اختر الموظف / العامل</option>'+(employees||[]).filter(x=>x.is_active!==false).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'ar')).map(e=>`<option value="${e.id}">${escapeHtml(e.name)}</option>`).join('');if(cur)s.value=cur;applyEmployeeSelectColor(id);});}
+function renderSalaryEmployeePicker(){const inputIds=['salaryEmployeeInput','salaryEmployeeSelect'];inputIds.forEach(id=>{const s=$(id);if(!s)return;const name=(employees\vert{}\vert{}[]).find(e=>String(e.id)===String(s.value))?.name\vert{}\vert{}'';const selectedId=id==='salaryEmployeeInput'?'salaryEmployeeEntrySelected':'salaryEmployeeSelected';const display=$(selectedId);if(display)display.textContent=name||'اختر الموظف / العامل';});}
 function bindSalaryEmployeeSearch(inputId,selectId,resultsId,displayId){const input=$(inputId),results=$(resultsId),select=$(selectId),display=$(displayId);if(!input||!results||!select)return;const render=(term='')=>{const q=String(term||'').trim().toLocaleLowerCase('ar');const list=(employees||[]).filter(e=>e.is_active!==false&&(!q||String(e.name||'').toLocaleLowerCase('ar').includes(q))).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'ar')).slice(0,80);results.innerHTML=list.map(e=>`<button type="button" class="employee-search-option" data-id="${e.id}" style="background:${personColor(e.name)}"><span>${escapeHtml(e.name)}</span><small>موظف / عامل</small></button>`).join('')||'<div class="employee-search-empty">لا توجد أسماء مطابقة</div>';results.classList.toggle('show',true);};input.addEventListener('focus',()=>render(input.value));input.addEventListener('input',()=>render(input.value));results.addEventListener('click',e=>{const b=e.target.closest('[data-id]');if(!b)return;select.value=b.dataset.id;select.dispatchEvent(new Event('change',{bubbles:true}));input.value=b.querySelector('span')?.textContent||'';results.classList.remove('show');if(display){display.textContent=input.value||'اختر الموظف';display.style.background=personColor(input.value);display.style.fontWeight='800';}});document.addEventListener('click',e=>{if(!e.target.closest('.employee-search-label'))results.classList.remove('show');});}
-async function loadSalaries(){const [sr,cr]=await Promise.all([db.from('employee_salaries').select('*'),db.from('advance_carryovers').select('*').order('target_month',{ascending:true})]);if(sr.error){console.warn('employee_salaries:',sr.error.message);salaries=[];return;}const carry=cr.error?[]:(cr.data||[]);salaries=(sr.data||[]).map(s=>({...s,_carryovers:carry.filter(c=>String(c.employee_id)===String(s.employee_id)&&c.status!=='settled')}));}
-async function loadPenalties(){
-  // لا نعتمد على embedded relation هنا؛ جدول الموظفين محمّل مسبقاً في loadPeople().
-  // هذا يمنع فشل قراءة العقوبات بالكامل إذا كانت صلاحيات العلاقة مختلفة عن صلاحيات الجدول نفسه.
-  const r=await db.from('employee_penalties')
-    .select('id,employee_id,penalty_date,penalty_type,amount,currency,notes,created_at')
-    .order('penalty_date',{ascending:false})
-    .order('created_at',{ascending:false});
-  if(r.error){
-    console.warn('employee_penalties:',r.error.message);
-    penalties=[];
-    return;
-  }
-  penalties=(r.data||[]).map(p=>({
-    ...p,
-    employees:{name:employees.find(e=>String(e.id)===String(p.employee_id))?.name||''}
-  }));
+
+async function loadSalaries(){
+  const sr=await db.from('employee_salaries').select('*');
+  salaries=sr.data||[];
 }
-async function loadCarryovers(){const r=await db.from('advance_carryovers').select('*').order('target_month',{ascending:true});if(r.error){console.warn('advance_carryovers:',r.error.message);return [];}return r.data||[];}
+
+async function loadPenalties(){
+  const r=await db.from('employee_penalties').select('id,employee_id,penalty_date,penalty_type,amount,currency,notes,created_at').order('penalty_date',{ascending:false});
+  penalties=(r.data||[]).map(p=>({...p,employees:{name:employees.find(e=>String(e.id)===String(p.employee_id))?.name||''}}));
+}
+
 function penaltyLabel(t){return t==='absence1'?'غياب ×1':t==='absence2'?'غياب ×2':'خصم'}
 function hoursForTimeLeave(l){if(!l?.start_time||!l?.end_time)return 0;const a=String(l.start_time).split(':').map(Number),b=String(l.end_time).split(':').map(Number);let x=(b[0]*60+b[1])-(a[0]*60+a[1]);if(x<0)x+=1440;return x/60;}
 function salaryAttendance(s,month){const empId=s.employee_id;const official=Number(s.official_hours||8)||8;const dayLeaves=leaves.filter(l=>l.employee_id===empId&&l.leave_type==='day'&&leaveOverlapsMonth(l,month)).reduce((n,l)=>n+leaveDayCountForMonth(l,month),0);const timeHours=leaves.filter(l=>l.employee_id===empId&&l.leave_type==='time'&&monthKeyFromDate(l.leave_date)===month).reduce((n,l)=>n+hoursForTimeLeave(l),0);const penaltiesForMonth=penalties.filter(p=>p.employee_id===empId&&monthKeyFromDate(p.penalty_date)===month);const absenceDays=penaltiesForMonth.reduce((n,p)=>n+(p.penalty_type==='absence2'?2:p.penalty_type==='absence1'?1:0),0);const baseHours=official*30;const actual=Math.max(0,baseHours-(dayLeaves+absenceDays)*official-timeHours);return {official,baseHours,actual,dayLeaves,timeHours,absenceDays};}
-function salaryAdvanceDue(s,month){const empId=s.employee_id;const current=advances.filter(a=>a.employee_id===empId&&monthKeyFromDate(a.advance_date)===month).reduce((n,a)=>n+Number(a.amount||0),0);const previousMonth=new Date(`${month}-01T00:00:00`);previousMonth.setMonth(previousMonth.getMonth()-1);const prevKey=previousMonth.toISOString().slice(0,7);const carry=s._carryovers||[];const carryDue=carry.filter(c=>String(c.employee_id)===String(empId)&&String(c.target_month).slice(0,7)===month&&c.status!=='settled').reduce((n,c)=>n+Number(c.remaining_amount||0),0);return {current,carryDue,total:current+carryDue,previousMonth:prevKey};}
+function salaryAdvanceDue(s,month){const empId=s.employee_id;const current=advances.filter(a=>a.employee_id===empId&&monthKeyFromDate(a.advance_date)===month).reduce((n,a)=>n+Number(a.amount||0),0);return {current,carryDue:0,total:current};}
 function salaryCalc(s,month){
   const currency=s.currency||'IQD';
   const nominal=Number(s.nominal_salary||0);
@@ -1163,255 +1021,147 @@ function salaryCalc(s,month){
   const otHours=otDaily*30;
   const overtime=otHours/30*50000;
   const empId=s.employee_id;
-  const secondDays=s.second_job_enabled?Math.max(0,30-att.dayLeaves-att.absenceDays):0;
-  const secondValue=s.second_job_enabled?Number(s.second_job_daily_value||0)*secondDays:0;
   const due=salaryAdvanceDue(s,month);
-  const savedAdvance=Number(s.advance_deduction||0);
-  const advanceDeduction=savedAdvance>0?savedAdvance:due.total;
+  const advanceDeduction=due.total;
   const dayBase=currency==='IQD'?(nominal+overtime)/30:nominal/30;
   const leaveDed=att.dayLeaves*dayBase;
   const timeDed=att.timeHours*(dayBase/att.official);
   const monthPen=penalties.filter(p=>p.employee_id===empId&&monthKeyFromDate(p.penalty_date)===month);
   const absenceDed=att.absenceDays*dayBase;
   const directPenalty=monthPen.filter(p=>p.penalty_type==='deduction'&&(p.currency||'IQD')===currency).reduce((n,p)=>n+Number(p.amount||0),0);
-  const directPenaltyOther=monthPen.filter(p=>p.penalty_type==='deduction'&&(p.currency||'IQD')!==currency).reduce((n,p)=>n+Number(p.amount||0),0);
-  const salaryAdvDed=currency==='IQD'?Math.min(advanceDeduction,due.total):0;
-  const salaryAdvOther=currency==='IQD'?0:advanceDeduction;
-  const carryRemaining=Math.max(0,due.total-salaryAdvDed);
-  const salaryNet=nominal+(currency==='IQD'?overtime:0)-leaveDed-timeDed-salaryAdvDed-directPenalty-absenceDed;
-  return {currency,nominal,overtime,adv:due.total,advanceCurrent:due.current,advanceCarry:due.carryDue,advanceDeduction:salaryAdvDed,salaryAdvOther,carryRemaining,dayLeaves:att.dayLeaves,leaveDed,timeHours:att.timeHours,timeDed,absenceDays:att.absenceDays,absenceDed,directPenalty,directPenaltyOther,secondValue,secondDays,salaryNet,workHours:att.actual,baseHours:att.baseHours,official:att.official,otHours,otDaily};
+  const salaryNet=nominal+(currency==='IQD'?overtime:0)-leaveDed-timeDed-advanceDeduction-directPenalty-absenceDed;
+  return {currency,nominal,overtime,adv:due.total,advanceDeduction,dayLeaves:att.dayLeaves,leaveDed,timeHours:att.timeHours,timeDed,absenceDays:att.absenceDays,absenceDed,directPenalty,salaryNet,workHours:att.actual};
 }
 function salaryStatus(s){return s.payment_status==='paid'?'تم التسليم':'لم يُسلّم';}
 function paymentDateText(s){return s.payment_date?arDate(String(s.payment_date).slice(0,10)):'—';}
-function salaryRowActions(s){return `<button class="mini-edit" onclick="event.stopPropagation();editSalary('${s.id}')">تعديل</button><button class="mini-secondary" onclick="event.stopPropagation();annualRaiseSalary('${s.id}')">زيادة سنوية</button><button class="mini-danger" onclick="event.stopPropagation();deleteSalary('${s.id}')">حذف</button>`;}
+function salaryRowActions(s){return `<button class="mini-edit" onclick="event.stopPropagation();editSalary('${s.id}')">تعديل</button><button class="mini-danger" onclick="event.stopPropagation();deleteSalary('${s.id}')">حذف</button>`;}
+
 function renderSalaryReport(){
-  const month=$('salaryReportMonth')?.value||currentMonthKey(),body=$('salaryReportBody');if(!body)return;
+  const month=$('salaryReportMonth')?.value\vert{}\vert{}currentMonthKey(),body=$('salaryReportBody');if(!body)return;
   updateSalaryMonthDisplay('salaryReportMonth');
   const rows=salaries.filter(s=>salaryMonthKey(s.salary_month)===month);
-  body.innerHTML=rows.map(s=>{const e=employees.find(x=>String(x.id)===String(s.employee_id)),c=salaryCalc(s,month),u=c.currency==='USD'?'$':'د.ع';const name=e?.name||'غير محدد';return `<tr data-employee-id="${s.employee_id}">
-<td class="salary-name-cell" style="background:${personColor(name)}">${escapeHtml(name)}</td><td class="salary-nominal-cell"><strong>${money(c.nominal)} ${u}</strong></td><td class="salary-actual-hours-cell"><strong>${money(c.workHours)} س</strong><small>من 30 يوم</small></td><td class="salary-attendance-cell"><div>إجازات: ${c.dayLeaves} يوم / ${money(c.leaveDed)} ${u}</div><div>غياب: ${c.absenceDays} يوم / ${money(c.absenceDed)} ${u}</div><div>زمنيات: ${money(c.timeHours)} س / ${money(c.timeDed)} ${u}</div></td><td class="salary-overtime-cell">${money(c.otHours)} س<br>${money(c.overtime)} د.ع</td><td class="salary-advance-cell">${money(c.adv)} د.ع${c.advanceCarry?`<br><small>مدوّرة: ${money(c.advanceCarry)} د.ع</small>`:''}</td><td class="salary-penalty-cell">${money(c.directPenalty)} ${u}</td><td class="salary-second-cell">${c.secondDays} يوم<br>${money(c.secondValue)} د.ع</td><td class="salary-net-cell"><strong>${money(c.salaryNet)} ${u}</strong></td><td class="salary-status-cell"><span class="salary-status ${s.payment_status==='paid'?'paid':'pending'}">${salaryStatus(s)}</span>${s.payment_status==='paid'?`<small>${paymentDateText(s)}</small>`:''}<div class="salary-actions-inline">${s.payment_status==='paid'?'<span class="paid-mark">✓</span>':'<button class="mini-paid" onclick="event.stopPropagation();markSalaryPaid(\''+s.id+'\')">تم التسليم</button>'}${salaryRowActions(s)}</div></td></tr>`;}).join('')||'<tr><td colspan="10" class="empty-cell">لا توجد رواتب لهذا الشهر</td></tr>';
-  body.querySelectorAll('[data-employee-id]').forEach(tr=>tr.onclick=()=>{$('salaryEmployeeMonth').value=month;fillMonthSelect('salaryEmployeeMonth',false);setSalaryEmployeeSelection(tr.dataset.employeeId);showSalaryMenu();openSalaryEmployee();});
+  body.innerHTML=rows.map(s=>{const e=employees.find(x=>String(x.id)===String(s.employee_id)),c=salaryCalc(s,month),u=c.currency==='USD'?'\$':'د.ع';const name=e?.name||'غير محدد';return `<tr data-employee-id="${s.employee_id}">
+<td class="salary-name-cell" style="background:${personColor(name)}">${escapeHtml(name)}</td><td class="salary-nominal-cell"><strong>${money(c.nominal)} ${u}</strong></td><td class="salary-actual-hours-cell"><strong>${money(c.workHours)} س</strong><small>من 30 يوم</small></td><td class="salary-attendance-cell"><div>إجازات: ${c.dayLeaves} يوم</div><div>غياب: ${c.absenceDays} يوم</div><div>زمنيات: ${money(c.timeHours)} س</div></td><td class="salary-net-cell"><strong>${money(c.salaryNet)} ${u}</strong></td><td class="salary-status-cell"><span class="salary-status ${s.payment_status==='paid'?'paid':'pending'}">${salaryStatus(s)}</span><div class="salary-actions-inline">${s.payment_status==='paid'?'<span class="paid-mark">✓</span>':'<button class="mini-paid" onclick="event.stopPropagation();markSalaryPaid(\''+s.id+'\')">تم التسليم</button>'}${salaryRowActions(s)}</div></td></tr>`;}).join('')||'<tr><td colspan="6" class="empty-cell">لا توجد رواتب لهذا الشهر</td></tr>';
 }
-function setSalaryEmployeeSelection(id){const s=$('salaryEmployeeSelect');if(s){s.value=id;applyEmployeeSelectColor('salaryEmployeeSelect');}const name=(employees||[]).find(e=>String(e.id)===String(id))?.name||'';if($('salaryEmployeeSearch'))$('salaryEmployeeSearch').value=name;if($('salaryEmployeeSelected')){$('salaryEmployeeSelected').textContent=name||'اختر الموظف / العامل';$('salaryEmployeeSelected').style.background=name?personColor(name):'';$('salaryEmployeeSelected').style.fontWeight=name?'800':'';}}
-function renderSalaryEmployeeReport(){const month=$('salaryEmployeeMonth')?.value||currentMonthKey(),id=$('salaryEmployeeSelect')?.value,box=$('salaryEmployeeDetail');if(!box)return;updateSalaryMonthDisplay('salaryEmployeeMonth');if(!id){box.innerHTML='<div class="empty-cell">اختر الموظف لعرض كشف الراتب</div>';return;}const s=salaries.find(x=>String(x.employee_id)===String(id)&&salaryMonthKey(x.salary_month)===month),e=employees.find(x=>String(x.id)===String(id));if(!s){box.innerHTML='<div class="empty-cell">لا يوجد راتب مسجل لهذا الموظف في الشهر المحدد</div>';return;}const c=salaryCalc(s,month),u=c.currency==='USD'?'$':'د.ع';box.innerHTML=`<h3>كشف راتب: ${escapeHtml(e?.name||'')}</h3><div class="salary-detail-grid">
-<div class="salary-box nominal"><span>الراتب الاسمي</span><b>${money(c.nominal)} ${u}</b></div><div class="salary-box actual"><span>الساعات الفعلية</span><b>${c.workHours} ساعة</b><small>تتأثر بالإجازات والغياب والزمنيات</small></div><div class="salary-box attendance"><span>الغياب والإجازات</span><b>إجازات: ${c.dayLeaves} يوم / ${money(c.leaveDed)} ${u}<br>غياب: ${c.absenceDays} يوم / ${money(c.absenceDed)} ${u}</b></div><div class="salary-box time"><span>الزمنيات</span><b>${c.timeHours.toFixed(2)} ساعة / ${money(c.timeDed)} ${u}</b></div><div class="salary-box overtime"><span>الإضافي</span><b>${c.otHours} ساعة / ${money(c.overtime)} د.ع</b></div><div class="salary-box advance"><span>السلف</span><b>${money(c.adv)} د.ع</b></div><div class="salary-box penalty"><span>العقوبات</span><b>${money(c.directPenalty)} ${u}</b></div><div class="salary-box second"><span>العمل الثاني</span><b>${c.secondDays} يوم / ${money(c.secondValue)} د.ع</b></div><div class="salary-box net"><span>صافي الراتب</span><b>${money(c.salaryNet)} ${u}</b></div><div class="salary-box status"><span>حالة التسليم</span><b>${salaryStatus(s)}${s.payment_status==='paid'?` — ${paymentDateText(s)}`:''}</b></div><div class="salary-box carry"><span>المتبقي المرحّل</span><b>${money(c.carryRemaining)} د.ع</b></div></div>`;}
-async function loadSalaryFormRecord(){const employee_id=$('salaryEmployeeInput')?.value,month=$('salaryMonthInput')?.value;if(!employee_id||!month)return;updateSalaryMonthDisplay('salaryMonthInput');const s=salaries.find(x=>String(x.employee_id)===String(employee_id)&&salaryMonthKey(x.salary_month)===month);if(!s){$('salaryCurrency').value='IQD';$('salaryNominal').value='';$('salaryOfficialHours').value='8';$('salaryBaseHours').value='240';$('salaryWorkHours').value='240';$('salaryOvertimeDailyHours').value='0';$('salarySecondJob').value='false';$('salarySecondJobValue').value='0';$('salarySecondJobDays').value='0';$('salaryAdvanceDeduction').value='0';$('salaryAdvanceDueHint').textContent='السلف المستحقة: 0 د.ع';$('saveSalaryBtn').textContent='حفظ الراتب';return;}$('salaryCurrency').value=s.currency||'IQD';$('salaryNominal').value=s.nominal_salary??0;$('salaryOfficialHours').value=s.official_hours??8;$('salaryBaseHours').value=Number(s.official_hours||8)*30;$('salaryWorkHours').value=salaryAttendance(s,month).actual;$('salaryOvertimeDailyHours').value=s.overtime_daily_hours ?? (Number(s.overtime_hours||0)/30);$('salarySecondJob').value=s.second_job_enabled?'true':'false';$('salarySecondJobValue').value=s.second_job_daily_value??0;$('salarySecondJobDays').value=salaryAttendance(s,month).dayLeaves>=0?Math.max(0,30-salaryAttendance(s,month).dayLeaves-salaryAttendance(s,month).absenceDays):0;const due=salaryAdvanceDue(s,month);$('salaryAdvanceDeduction').value=s.advance_deduction??due.total;$('salaryAdvanceDueHint').textContent=`السلف المستحقة: ${money(due.total)} د.ع${due.carryDue?` — منها مدوّرة ${money(due.carryDue)} د.ع`:''}`;updateOvertimePreview();updateSalaryHoursPreview();$('saveSalaryBtn').textContent='حفظ تعديل الراتب';}
-function updateOvertimePreview(){const d=Math.max(0,Number($('salaryOvertimeDailyHours')?.value||0));const m=d*30;if($('salaryOvertimeHours'))$('salaryOvertimeHours').value=m;}
-function updateSalaryHoursPreview(){const official=Math.max(0,Number($('salaryOfficialHours')?.value||0));if($('salaryBaseHours'))$('salaryBaseHours').value=official*30;const month=$('salaryMonthInput')?.value,employee_id=$('salaryEmployeeInput')?.value;if(!month||!employee_id){if($('salaryWorkHours'))$('salaryWorkHours').value=official*30;return;}const fake={employee_id,official_hours:official};const att=salaryAttendance(fake,month);if($('salaryWorkHours'))$('salaryWorkHours').value=att.actual;}
+
+function setSalaryEmployeeSelection(id){const s=\$('salaryEmployeeSelect');if(s){s.value=id;applyEmployeeSelectColor('salaryEmployeeSelect');}const name=(employees||[]).find(e=>String(e.id)===String(id))?.name||'';if($('salaryEmployeeSearch'))$('salaryEmployeeSearch').value=name;}
+function renderSalaryEmployeeReport(){const month=\$('salaryEmployeeMonth')?.value||currentMonthKey(),id=$('salaryEmployeeSelect')?.value,box=$('salaryEmployeeDetail');if(!box)return;const s=salaries.find(x=>String(x.employee_id)===String(id)&&salaryMonthKey(x.salary_month)===month),e=employees.find(x=>String(x.id)===String(id));if(!s){box.innerHTML='<div class="empty-cell">لا يوجد راتب مسجل لهذا الموظف</div>';return;}const c=salaryCalc(s,month),u=c.currency==='USD'?'\$':'د.ع';box.innerHTML=`<h3>كشف راتب: ${escapeHtml(e?.name||'')}</h3><div class="salary-detail-grid"><div class="salary-box net"><span>صافي الراتب</span><b>${money(c.salaryNet)} ${u}</b></div></div>`;}
+async function loadSalaryFormRecord(){const employee_id=$('salaryEmployeeInput')?.value,month=$('salaryMonthInput')?.value;if(!employee_id||!month)return;const s=salaries.find(x=>String(x.employee_id)===String(employee_id)&&salaryMonthKey(x.salary_month)===month);if(!s){$('salaryCurrency').value='IQD';$('salaryNominal').value='';$('salaryOfficialHours').value='8';return;}$('salaryCurrency').value=s.currency||'IQD';$('salaryNominal').value=s.nominal_salary??0;$('salaryOfficialHours').value=s.official_hours??8;}
+function updateOvertimePreview(){}
+function updateSalaryHoursPreview(){}
+
 async function saveSalary(){
   if(authRole!=='manager')return toast('هذه الصلاحية للمدير فقط');
   const employee_id=$('salaryEmployeeInput').value,month=$('salaryMonthInput').value;
   if(!employee_id||!month)return toast('اختر الموظف والشهر');
-  const otDaily=Math.max(0,Number($('salaryOvertimeDailyHours').value||0));
-  const official=Math.max(1,Number($('salaryOfficialHours').value||8));
-  const existing=salaries.find(x=>String(x.employee_id)===String(employee_id)&&salaryMonthKey(x.salary_month)===month);
-  const due=salaryAdvanceDue(existing||{employee_id,_carryovers:salaries.flatMap(x=>x._carryovers||[]).filter(c=>String(c.employee_id)===String(employee_id))},month);
-  const requestedDeduction=Math.max(0,Number($('salaryAdvanceDeduction').value||0));
-  const row={employee_id,salary_month:month+'-01',currency:$('salaryCurrency').value,nominal_salary:Number($('salaryNominal').value||0),official_hours:official,work_hours:salaryAttendance({employee_id,official_hours:official},month).actual,overtime_daily_hours:otDaily,overtime_hours:otDaily*30,advance_deduction:requestedDeduction,advance_carryover:Math.max(0,due.total-Math.min(requestedDeduction,due.total)),second_job_enabled:$('salarySecondJob').value==='true',second_job_daily_value:Number($('salarySecondJobValue').value||0),second_job_days:Math.max(0,30-salaryAttendance({employee_id,official_hours:official},month).dayLeaves-salaryAttendance({employee_id,official_hours:official},month).absenceDays)};
+  const row={employee_id,salary_month:month+'-01',currency:\$('salaryCurrency').value,nominal_salary:Number($('salaryNominal').value\vert{}\vert{}0),official_hours:Number($('salaryOfficialHours').value||8)};
   const {error}=await db.from('employee_salaries').upsert(row,{onConflict:'employee_id,salary_month'});
   if(error)return toast('تعذر حفظ الراتب: '+error.message);
-  await loadSalaries();$('saveSalaryBtn').textContent='حفظ تعديل الراتب';await emitAdvancePushEvent(existing?'salary_updated':'salary_added',existing?'تعديل راتب':'إضافة راتب',existing?'تم تعديل راتب موظف في نظام سلف موظفي وعمال أمازون':'تمت إضافة راتب موظف في نظام سلف موظفي وعمال أمازون');await maybeNotifySalaryMonthComplete(month);toast('تم حفظ راتب الموظف بنجاح');
-}
-async function maybeNotifySalaryMonthComplete(month){const activeEmployeeIds=(employees||[]).filter(e=>e.is_active!==false).map(e=>String(e.id));const salaryEmployeeIds=new Set(salaries.filter(x=>salaryMonthKey(x.salary_month)===month).map(x=>String(x.employee_id)));if(activeEmployeeIds.length>0&&activeEmployeeIds.every(id=>salaryEmployeeIds.has(id))){try{const {data:claimed,error:claimError}=await db.rpc('claim_salary_month_notification',{p_month:month+'-01'});if(!claimError&&claimed===true)await emitAdvancePushEvent('salary_month_completed','نزول الرواتب',`تم إكمال رواتب شهر ${monthOptionLabel(month)} وأصبحت الرواتب جاهزة للصرف`);}catch(err){console.warn('Salary month notification claim failed',err);}}}
-async function markSalaryPaid(id){if(authRole!=='manager')return toast('هذه الصلاحية للمدير فقط');const s=salaries.find(x=>x.id===id);if(!s)return;const month=salaryMonthKey(s.salary_month);const c=salaryCalc(s,month);const today=new Date().toISOString();const {error}=await db.from('employee_salaries').update({payment_status:'paid',payment_date:today,advance_deduction:c.advanceDeduction,advance_carryover:c.carryRemaining}).eq('id',id);if(error)return toast('تعذر تسجيل تسليم الراتب: '+error.message);if(c.carryRemaining>0){const next=new Date(`${month}-01T00:00:00`);next.setMonth(next.getMonth()+1);const target=next.toISOString().slice(0,7)+'-01';const existingCarry=await db.from('advance_carryovers').select('id').eq('employee_id',s.employee_id).eq('target_month',target).eq('status','active').maybeSingle();if(!existingCarry.data){const ins=await db.from('advance_carryovers').insert({employee_id:s.employee_id,source_advance_id:null,source_salary_id:String(s.id),source_month:`${month}-01`,target_month:target,original_amount:c.adv,deducted_amount:c.advanceDeduction,remaining_amount:c.carryRemaining,status:'active'});if(ins.error)console.warn('carryover insert:',ins.error.message);}}await loadSalaries();renderSalaryReport();await emitAdvancePushEvent('salary_paid','تسليم راتب',`تم تسليم راتب ${monthOptionLabel(month)} للموظف`);toast('تم تسجيل تسليم الراتب بنجاح');}
-window.markSalaryPaid=markSalaryPaid;
-async function editSalary(id){const s=salaries.find(x=>x.id===id);if(!s)return;showSalaryMenu();await openSalaryEntry();setSalaryEmployeeSelection(s.employee_id);$('salaryMonthInput').value=salaryMonthKey(s.salary_month);await loadSalaryFormRecord();window.scrollTo({top:0,behavior:'smooth'});}
-window.editSalary=editSalary;
-async function annualRaiseSalary(id){if(authRole!=='manager')return toast('هذه الصلاحية للمدير فقط');const s=salaries.find(x=>x.id===id);if(!s)return;const current=Number(s.nominal_salary||0);const answer=window.prompt('أدخل نسبة الزيادة السنوية (%)', '5');if(answer===null)return;const pct=Number(answer);if(!Number.isFinite(pct)||pct<0)return toast('نسبة الزيادة غير صحيحة');const next=Math.round(current*(1+pct/100)*100)/100;const {error}=await db.from('employee_salaries').update({nominal_salary:next}).eq('id',id);if(error)return toast('تعذر تطبيق الزيادة: '+error.message);await loadSalaries();renderSalaryReport();await emitAdvancePushEvent('salary_updated','زيادة سنوية',`تمت زيادة راتب موظف بنسبة ${pct}%`);toast(`تمت زيادة الراتب إلى ${money(next)} ${s.currency==='USD'?'$':'د.ع'}`);}
-window.annualRaiseSalary=annualRaiseSalary;
-async function deleteSalary(id){if(authRole!=='manager')return toast('هذه الصلاحية للمدير فقط');confirmBox('هل تريد حذف سجل راتب هذا الشهر؟',async()=>{const {error}=await db.from('employee_salaries').delete().eq('id',id);if(error)return toast('تعذر حذف الراتب: '+error.message);await loadSalaries();renderSalaryReport();await emitAdvancePushEvent('salary_deleted','حذف راتب','تم حذف سجل راتب من النظام');toast('تم حذف الراتب بنجاح');});}
-window.deleteSalary=deleteSalary;
-async function printSalaryReport(){const report=$('salaryReport');if(!report)return;document.body.classList.add('salary-printing');window.print();setTimeout(()=>document.body.classList.remove('salary-printing'),1000);}
-async function exportSalaryReportPDF(){const report=$('salaryReport');if(!report||typeof html2pdf!=='function')return toast('تعذر إنشاء ملف PDF');const month=$('salaryReportMonth')?.value||currentMonthKey();const clone=report.cloneNode(true);clone.classList.remove('hidden-view');clone.classList.add('salary-pdf-export');clone.style.background='#fff';clone.style.width='1180px';clone.style.padding='18px';clone.querySelectorAll('button').forEach(b=>b.remove());const wrap=document.createElement('div');wrap.style.direction='rtl';wrap.style.background='#fff';wrap.appendChild(clone);document.body.appendChild(wrap);try{await html2pdf().set({margin:6,filename:`كشف_رواتب_${month}.pdf`,image:{type:'jpeg',quality:.98},html2canvas:{scale:2,useCORS:true,backgroundColor:'#fff'},jsPDF:{unit:'mm',format:'a4',orientation:'landscape'},pagebreak:{mode:['css','legacy'],avoid:['tr','thead']}}).from(wrap).save();}catch(e){console.error(e);toast('تعذر إنشاء ملف PDF');}finally{wrap.remove();}}
-async function printSalaryEmployee(){const report=$('salaryEmployeeReport');if(!report)return;document.body.classList.add('salary-printing');window.print();setTimeout(()=>document.body.classList.remove('salary-printing'),1000);}
-async function exportSalaryEmployeePDF(){const report=$('salaryEmployeeReport');if(!report||typeof html2pdf!=='function')return toast('تعذر إنشاء ملف PDF');const month=$('salaryEmployeeMonth')?.value||currentMonthKey();const name=(employees||[]).find(e=>String(e.id)===String($('salaryEmployeeSelect')?.value))?.name||'موظف';const clone=report.cloneNode(true);clone.classList.remove('hidden-view');clone.style.background='#fff';clone.style.width='1000px';clone.style.padding='18px';clone.querySelectorAll('button').forEach(b=>b.remove());const wrap=document.createElement('div');wrap.style.direction='rtl';wrap.style.background='#fff';wrap.appendChild(clone);document.body.appendChild(wrap);try{await html2pdf().set({margin:7,filename:`كشف_راتب_${name}_${month}.pdf`,image:{type:'jpeg',quality:.98},html2canvas:{scale:2,useCORS:true,backgroundColor:'#fff'},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['css','legacy'],avoid:['.salary-detail-grid']}}).from(wrap).save();}catch(e){console.error(e);toast('تعذر إنشاء ملف PDF');}finally{wrap.remove();}}
-function showSalaryMenu(){hideAllNewPages();$('salaryMenu')?.classList.remove('hidden-view');}
-function showPenaltyMenu(){hideAllNewPages();$('penaltiesMenu')?.classList.remove('hidden-view');}
-function hideAllNewPages(){['salaryMenu','salaryEntryPage','salaryReport','salaryEmployeeReport','penaltiesMenu','penaltyEntryPage','penaltyAllReport','penaltyEmployeeReport'].forEach(id=>$(id)?.classList.add('hidden-view'));}
-async function openSalaryReport(){hideAllNewPages();await loadSalaries();fillMonthSelect('salaryReportMonth',false);$('salaryReport')?.classList.remove('hidden-view');renderSalaryReport();}
-async function openSalaryEmployee(){hideAllNewPages();await loadSalaries();fillMonthSelect('salaryEmployeeMonth',false);fillSalaryEmployeeSelects();$('salaryEmployeeReport')?.classList.remove('hidden-view');bindSalaryEmployeeSearch('salaryEmployeeSearch','salaryEmployeeSelect','salaryEmployeeSearchResults','salaryEmployeeSelected');renderSalaryEmployeeReport();}
-async function openSalaryEntry(){hideAllNewPages();await loadSalaries();fillSalaryEmployeeSelects();$('salaryMonthInput').value=$('salaryMonthInput').value||currentMonthKey();$('salaryEntryPage')?.classList.remove('hidden-view');bindSalaryEmployeeSearch('salaryEmployeeEntrySearch','salaryEmployeeInput','salaryEmployeeEntrySearchResults','salaryEmployeeEntrySelected');await loadSalaryFormRecord();updateSalaryHoursPreview();}
-async function openPenaltyAll(){hideAllNewPages();await loadPenalties();fillMonthSelect('penaltyReportMonth',true);$('penaltyAllReport')?.classList.remove('hidden-view');renderPenaltyReports();}
-async function openPenaltyEmployee(){hideAllNewPages();await loadPenalties();fillMonthSelect('penaltyEmployeeMonth',true);fillSalaryEmployeeSelects();$('penaltyEmployeeReport')?.classList.remove('hidden-view');renderPenaltyEmployeeReport();}
-function clearPenaltyForm(){
-  selectedPenaltyId=null;
-  const emp=$('penaltyEmployee'), date=$('penaltyDate'), type=$('penaltyType'), amount=$('penaltyAmount'), currency=$('penaltyCurrency'), notes=$('penaltyNotes');
-  if(emp) emp.value='';
-  if(date) date.value=isoToday();
-  if(type) type.value='deduction';
-  if(amount) amount.value='';
-  if(currency) currency.value='IQD';
-  if(notes) notes.value='';
-  $('cancelPenaltyEditBtn')?.classList.add('hidden');
-  if($('savePenaltyBtn')) $('savePenaltyBtn').textContent='حفظ العقوبة';
-  applyEmployeeSelectColor('penaltyEmployee');
-}
-function renderPenaltyEditList(){
-  const body=$('penaltyEditBody');
-  if(!body)return;
-  const rows=[...(penalties||[])].sort((a,b)=>String(b.penalty_date||'').localeCompare(String(a.penalty_date||'')));
-  body.innerHTML=rows.map(p=>`<tr>
-    <td>${escapeHtml(p.employees?.name||employees.find(e=>String(e.id)===String(p.employee_id))?.name||'')}</td>
-    <td>${arDate(p.penalty_date)}</td>
-    <td>${penaltyLabel(p.penalty_type)}</td>
-    <td>${p.penalty_type==='deduction'?money(p.amount):'يحسب مع الراتب'}</td>
-    <td>${p.penalty_type==='deduction'?(p.currency||'IQD'):'-'}</td>
-    <td><button type="button" class="mini-edit" onclick="editPenalty('${p.id}')">✎ تعديل</button> <button type="button" class="mini-delete" onclick="deletePenalty('${p.id}')">🗑 حذف</button></td>
-  </tr>`).join('')||'<tr><td colspan="6" class="empty-cell">لا توجد عقوبات مسجلة</td></tr>';
-}
-function editPenalty(id){
-  if(authRole!=='manager')return toast('هذه الصلاحية للمدير فقط');
-  const p=penalties.find(x=>String(x.id)===String(id));
-  if(!p)return toast('العقوبة غير موجودة');
-  selectedPenaltyId=p.id;
-  $('penaltyEmployee').value=p.employee_id||'';
-  $('penaltyDate').value=p.penalty_date||isoToday();
-  $('penaltyType').value=p.penalty_type||'deduction';
-  $('penaltyAmount').value=p.amount??'';
-  $('penaltyCurrency').value=p.currency||'IQD';
-  $('penaltyNotes').value=p.notes||'';
-  $('cancelPenaltyEditBtn')?.classList.remove('hidden');
-  if($('savePenaltyBtn')) $('savePenaltyBtn').textContent='حفظ تعديل العقوبة';
-  applyEmployeeSelectColor('penaltyEmployee');
-  window.scrollTo({top:0,behavior:'smooth'});
-}
-window.editPenalty=editPenalty;
-function deletePenalty(id){
-  if(authRole!=='manager')return toast('هذه الصلاحية للمدير فقط');
-  const p=penalties.find(x=>String(x.id)===String(id));
-  if(!p)return toast('العقوبة غير موجودة');
-  confirmBox('هل تريد حذف هذه العقوبة؟',async()=>{
-    const {error}=await db.from('employee_penalties').delete().eq('id',id);
-    if(error)return toast('تعذر حذف العقوبة: '+error.message);
-    await loadPenalties();
-    renderPenaltyEditList();
-    await emitAdvancePushEvent('penalty_deleted','حذف عقوبة',`تم حذف عقوبة للموظف ${p.employees?.name||''}`);
-    toast('تم حذف العقوبة بنجاح');
-  });
-}
-window.deletePenalty=deletePenalty;
-async function savePenalty(){
-  if(authRole!=='manager')return toast('هذه الصلاحية للمدير فقط');
-  const employee_id=$('penaltyEmployee')?.value||'';
-  const penalty_date=$('penaltyDate')?.value||isoToday();
-  const penalty_type=$('penaltyType')?.value||'deduction';
-  const amount=Number($('penaltyAmount')?.value||0);
-  const currency=$('penaltyCurrency')?.value||'IQD';
-  const notes=$('penaltyNotes')?.value?.trim()||null;
-  if(!employee_id)return toast('اختر الموظف / العامل');
-  if(!penalty_date)return toast('اختر تاريخ العقوبة');
-  if(penalty_type==='deduction'&&(!Number.isFinite(amount)||amount<=0))return toast('أدخل مبلغ الخصم');
-  const row={employee_id,penalty_date,penalty_type,amount:penalty_type==='deduction'?amount:0,currency,notes};
-  const btn=$('savePenaltyBtn'); if(btn)btn.disabled=true;
-  let result;
-  if(selectedPenaltyId){
-    result=await db.from('employee_penalties').update(row).eq('id',selectedPenaltyId);
-  }else{
-    result=await db.from('employee_penalties').insert(row);
-  }
-  if(btn)btn.disabled=false;
-  if(result.error)return toast((selectedPenaltyId?'تعذر تعديل العقوبة: ':'تعذر حفظ العقوبة: ')+result.error.message);
-  const isEdit=Boolean(selectedPenaltyId);
-  const empName=employees.find(e=>String(e.id)===String(employee_id))?.name||'';
-  selectedPenaltyId=null;
-  await loadPenalties();
-  renderPenaltyEditList();
-  clearPenaltyForm();
-  await emitAdvancePushEvent(isEdit?'penalty_updated':'penalty_added',isEdit?'تعديل عقوبة':'إضافة عقوبة',`${isEdit?'تم تعديل':'تمت إضافة'} عقوبة للموظف ${empName}`);
-  toast(isEdit?'تم تعديل العقوبة بنجاح':'تم حفظ العقوبة بنجاح');
+  await loadSalaries();
+  showBrowserNotification("حفظ الراتب", "تم حفظ راتب الموظف بنجاح");
+  toast('تم حفظ راتب الموظف بنجاح');
 }
 
-async function openPenaltyEntry(){hideAllNewPages();await loadPenalties();fillSalaryEmployeeSelects();clearPenaltyForm();renderPenaltyEditList();$('penaltyEntryPage')?.classList.remove('hidden-view');}
-function renderPenaltyReports(){const month=$('penaltyReportMonth')?.value||'',body=$('penaltyReportBody');if(body){const rows=penalties.filter(p=>!month||monthKeyFromDate(p.penalty_date)===month);body.innerHTML=rows.map(p=>`<tr><td>${escapeHtml(p.employees?.name||'')}</td><td>${arDate(p.penalty_date)}</td><td>${penaltyLabel(p.penalty_type)}</td><td>${p.penalty_type==='deduction'?money(p.amount):'يحسب مع الراتب'}</td><td>${p.penalty_type==='deduction'?(p.currency||'IQD'):'-'}</td><td>${escapeHtml(p.notes||'')}</td></tr>`).join('')||'<tr><td colspan="6" class="empty-cell">لا توجد عقوبات</td></tr>';}}
-function renderPenaltyEmployeeReport(){const month=$('penaltyEmployeeMonth')?.value||'',id=$('penaltyEmployeeSelect')?.value,box=$('penaltyEmployeeDetail'),summary=$('penaltyEmployeeSummaryBody');if(!box)return;const rows=penalties.filter(p=>(!month||monthKeyFromDate(p.penalty_date)===month)&&(!id||p.employee_id===id));const direct=rows.filter(p=>p.penalty_type==='deduction').reduce((n,p)=>n+Number(p.amount||0),0),a1=rows.filter(p=>p.penalty_type==='absence1').length,a2=rows.filter(p=>p.penalty_type==='absence2').length;if(summary)summary.innerHTML=id?`<tr><td>${escapeHtml(employees.find(e=>e.id===id)?.name||'')}</td><td>${money(direct)}</td><td>${a1}</td><td>${a2}</td><td>${money(direct)}</td></tr>`:'<tr><td colspan="5" class="empty-cell">اختر الموظف لعرض ملخص العقوبات</td></tr>';box.innerHTML=rows.map(p=>`<div class="person-row"><span>${escapeHtml(p.employees?.name||'')} — ${arDate(p.penalty_date)} — ${penaltyLabel(p.penalty_type)}</span><b>${p.penalty_type==='deduction'?money(p.amount):'يحسب مع الراتب'}</b></div>`).join('')||'<div class="empty-cell">لا توجد عقوبات</div>';}
-function fillPasswordTargetGivers(){
-  const s=$('passwordTargetGiver');
-  if(!s)return;
-  const current=$("loginNameSelect")?.value||"";
-  s.innerHTML='<option value="">اختر اسم المانح</option>';
-  (giverLoginList.length ? giverLoginList : givers).filter(g=>g.is_active!==false).forEach(g=>{
-    s.insertAdjacentHTML('beforeend',`<option value="giver:${escapeHtml(g.id)}">${escapeHtml(g.name)}</option>`);
-  });
-  if(current.startsWith('giver:')) s.value=current;
+async function markSalaryPaid(id){if(authRole!=='manager')return toast('هذه الصلاحية للمدير فقط');const {error}=await db.from('employee_salaries').update({payment_status:'paid',payment_date:new Date().toISOString()}).eq('id',id);if(error)return toast('تعذر التسليم: '+error.message);await loadSalaries();renderSalaryReport();toast('تم التسليم بنجاح');}
+window.markSalaryPaid=markSalaryPaid;
+async function editSalary(id){const s=salaries.find(x=>x.id===id);if(!s)return;showSalaryMenu();await openSalaryEntry();setSalaryEmployeeSelection(s.employee_id);\$('salaryMonthInput').value=salaryMonthKey(s.salary_month);await loadSalaryFormRecord();}
+window.editSalary=editSalary;
+async function deleteSalary(id){if(authRole!=='manager')return toast('هذه الصلاحية للمدير فقط');confirmBox('هل تريد حذف الراتب؟',async()=>{await db.from('employee_salaries').delete().eq('id',id);await loadSalaries();renderSalaryReport();toast('تم الحذف');});}
+window.deleteSalary=deleteSalary;
+
+function showSalaryMenu(){hideAllNewPages();\$('salaryMenu')?.classList.remove('hidden-view');}
+function showPenaltyMenu(){hideAllNewPages();\$('penaltiesMenu')?.classList.remove('hidden-view');}
+function hideAllNewPages(){['salaryMenu','salaryEntryPage','salaryReport','salaryEmployeeReport','penaltiesMenu','penaltyEntryPage','penaltyAllReport','penaltyEmployeeReport'].forEach(id=>\$(id)?.classList.add('hidden-view'));}
+async function openSalaryReport(){hideAllNewPages();await loadSalaries();fillMonthSelect('salaryReportMonth',false);\$('salaryReport')?.classList.remove('hidden-view');renderSalaryReport();}
+async function openSalaryEmployee(){hideAllNewPages();await loadSalaries();fillMonthSelect('salaryEmployeeMonth',false);fillSalaryEmployeeSelects();\$('salaryEmployeeReport')?.classList.remove('hidden-view');}
+async function openSalaryEntry(){hideAllNewPages();await loadSalaries();fillSalaryEmployeeSelects();$('salaryMonthInput').value=currentMonthKey();$('salaryEntryPage')?.classList.remove('hidden-view');}
+async function openPenaltyAll(){hideAllNewPages();await loadPenalties();fillMonthSelect('penaltyReportMonth',true);\$('penaltyAllReport')?.classList.remove('hidden-view');}
+async function openPenaltyEmployee(){hideAllNewPages();await loadPenalties();fillMonthSelect('penaltyEmployeeMonth',true);fillSalaryEmployeeSelects();\$('penaltyEmployeeReport')?.classList.remove('hidden-view');}
+
+function clearPenaltyForm(){
+  selectedPenaltyId=null;
+  if($('penaltyEmployee'))$('penaltyEmployee').value='';
+  if($('penaltyDate'))$('penaltyDate').value=isoToday();
+  if($('penaltyAmount'))$('penaltyAmount').value='';
 }
+function renderPenaltyEditList(){
+  const body=\$('penaltyEditBody');if(!body)return;
+  body.innerHTML=(penalties||[]).map(p=>`<tr><td>${escapeHtml(p.employees?.name||'')}</td><td>${arDate(p.penalty_date)}</td><td>${penaltyLabel(p.penalty_type)}</td><td>${p.amount}</td><td><button onclick="deletePenalty('${p.id}')">حذف</button></td></tr>`).join('')||'<tr><td colspan="5">لا توجد عقوبات</td></tr>';
+}
+async function deletePenalty(id){
+  if(authRole!=='manager')return toast('للمدير فقط');
+  await db.from('employee_penalties').delete().eq('id',id);
+  await loadPenalties(); renderPenaltyEditList(); toast('تم الحذف');
+}
+window.deletePenalty=deletePenalty;
+
+async function savePenalty(){
+  if(authRole!=='manager')return toast('للمدير فقط');
+  const employee_id=\$('penaltyEmployee')?.value||'';
+  const penalty_date=\$('penaltyDate')?.value||isoToday();
+  const amount=Number(\$('penaltyAmount')?.value||0);
+  if(!employee_id)return toast('اختر الموظف');
+  const {error}=await db.from('employee_penalties').insert({employee_id,penalty_date,penalty_type:'deduction',amount,currency:'IQD'});
+  if(error)return toast('تعذر الحفظ: '+error.message);
+  await loadPenalties(); renderPenaltyEditList(); clearPenaltyForm();
+  showBrowserNotification("عقوبة جديدة", "تم حفظ العقوبة بنجاح");
+  toast('تم حفظ العقوبة بنجاح');
+}
+
+async function openPenaltyEntry(){hideAllNewPages();await loadPenalties();fillSalaryEmployeeSelects();clearPenaltyForm();renderPenaltyEditList();\$('penaltyEntryPage')?.classList.remove('hidden-view');}
+
 function openPasswordModal(forgot=false){
-  const value=$("loginNameSelect")?.value||"";
+  const value=\$("loginNameSelect")?.value||"";
   const isManager=authRole==='manager' || value==='admin';
-  const target=$('passwordTargetWrap');
-  const targetSelect=$('passwordTargetGiver');
+  const target=\$('passwordTargetWrap');
   if(isManager){
-    fillPasswordTargetGivers();
     target?.classList.remove('hidden');
-    $('passwordModalTitle').textContent='إعادة تعيين كلمة مرور المانح';
-    $('passwordChangeFields')?.classList.add('hidden');
-    $('forgotManagerFields')?.classList.remove('hidden');
-    $('forgotPasswordNote')?.classList.remove('hidden');
-    $('oldPassword').value='';
-    $('forgotManagerPassword').value='';
+    \$('passwordModalTitle').textContent='إعادة تعيين كلمة مرور المانح';
   }else if(value.startsWith('giver:')){
     target?.classList.add('hidden');
-    $('passwordModalTitle').textContent=forgot?'إعادة تعيين كلمة مرور المانح':'تغيير كلمة المرور';
-    $('passwordChangeFields')?.classList.toggle('hidden',forgot);
-    $('forgotManagerFields')?.classList.toggle('hidden',!forgot);
-    $('forgotPasswordNote')?.classList.toggle('hidden',!forgot);
-    $('oldPassword').value=''; $('forgotManagerPassword').value='';
-    if(targetSelect)targetSelect.value=value;
+    \$('passwordModalTitle').textContent=forgot?'إعادة تعيين كلمة المرور':'تغيير كلمة المرور';
   }else{
     return setAuthError('اختر اسم المانح أولاً');
   }
-  $('newPassword').value=''; $('confirmPassword').value='';
-  $('passwordModal').classList.add('show');
+  \$('passwordModal').classList.add('show');
 }
 async function savePasswordChange(){
-  const loginValue=$("loginNameSelect")?.value||"";
+  const loginValue=\$("loginNameSelect")?.value||"";
   const isManager=authRole==='manager' || loginValue==='admin';
-  const targetValue=isManager?($('passwordTargetGiver')?.value||''):loginValue;
+  const targetValue=isManager?(\$('passwordTargetGiver')?.value||''):loginValue;
   const id=targetValue.replace(/^giver:/,'');
-  if(!targetValue.startsWith('giver:')) return toast('اختر اسم المانح الذي تريد تغيير كلمة مروره');
+  if(!targetValue.startsWith('giver:')) return toast('اختر الاسم');
   const p1=$('newPassword').value, p2=$('confirmPassword').value;
-  if(!/^(?:\d{6,}|(?=.*[A-Za-z])[A-Za-z0-9]{6,})$/.test(p1))return toast('كلمة المرور يجب أن تكون 6 خانات أو أكثر، أرقام فقط أو حروف وأرقام بدون رموز');
   if(p1!==p2)return toast('كلمتا المرور غير متطابقتين');
-  const forgot=$('forgotManagerFields')?.classList.contains('hidden')===false;
-  if(isManager || forgot){
-    const managerPassword=$('forgotManagerPassword').value;
-    if(!managerPassword)return toast('أدخل كلمة مرور المدير');
-    const {error}=await db.rpc('advance_manager_reset_giver_password',{p_giver_id:id,p_manager_password:managerPassword,p_new_password:p1});
-    if(error)return toast(error.message||'تعذر إعادة تعيين كلمة المرور');
-    $('passwordModal').classList.remove('show');
-    toast('تمت إعادة تعيين كلمة مرور المانح بنجاح');
-    return;
-  }
-  const old=$('oldPassword').value;
-  if(!old)return toast('أدخل كلمة المرور الحالية');
-  const {error}=await db.rpc('advance_giver_change_password',{p_giver_id:id,p_old_password:old,p_new_password:p1});
-  if(error)return toast(error.message.includes('غير صحيحة')?'كلمة المرور الحالية غير صحيحة':'تعذر تغيير كلمة المرور');
-  $('passwordModal').classList.remove('show'); toast('تم تغيير كلمة المرور بنجاح');
+  const {error}=await db.rpc('advance_manager_reset_giver_password',{p_giver_id:id,p_manager_password:\$('forgotManagerPassword').value,p_new_password:p1});
+  if(error)return toast(error.message||'تعذر التغيير');
+  \$('passwordModal').classList.remove('show');
+  toast('تم تغيير كلمة المرور بنجاح');
 }
+
 function openEmployeeManager(mode){
-  if(authRole!=='manager') return toast('هذه الصلاحية للمدير فقط');
-  $('peopleModal').dataset.type='employees'; $('peopleModal').dataset.mode=mode;
-  $('peopleTitle').textContent=mode==='delete'?'حذف موظف / عامل':'إضافة موظف / عامل';
-  $('peopleModal').classList.add('show'); $('personName').value=''; $('bulkPersonNames').value='';
-  document.querySelector('.inline-form')?.classList.toggle('hidden',mode==='delete');
-  document.querySelector('.bulk-people')?.classList.toggle('hidden',mode==='delete');
+  if(authRole!=='manager') return toast('للمدير فقط');
+  $('peopleModal').dataset.type='employees';$('peopleModal').dataset.mode=mode;
+  \$('peopleTitle').textContent=mode==='delete'?'حذف موظف':'إضافة موظف';
+  $('peopleModal').classList.add('show');$('personName').value='';
   renderPeople('employees');
 }
+
 async function init(){
   registerServiceWorker();
-  $("today").textContent=new Date().toLocaleDateString("en-GB");
-  $("advanceDate").value=isoToday();setMonthHeader();
+  \$("today").textContent=new Date().toLocaleDateString("en-GB");
+  \$("advanceDate").value=isoToday();setMonthHeader();
   if(restoreAuth()){hideAuthScreen();await startApp();}
   else{showAuthScreen();await loadGiverLoginList();}
 }
-$("loginBtn").onclick=unifiedLogin;
-$("loginNameSelect").onchange=updateUnifiedLoginMode;
-$("showFirstSetupBtn")?.addEventListener("click",showFirstPasswordSetup);
-$("giverSetupBtn")?.addEventListener("click",giverFirstPassword);
-$("cancelFirstSetupBtn")?.addEventListener("click",()=>{
-  $("giverFirstSetup")?.classList.add("hidden");
-  $("loginExisting")?.classList.remove("hidden");
-  $("giverNewPassword") && ($("giverNewPassword").value="");
-  $("giverConfirmPassword") && ($("giverConfirmPassword").value="");
+
+\$("loginBtn").onclick=unifiedLogin;
+\$("loginNameSelect").onchange=updateUnifiedLoginMode;
+\$("showFirstSetupBtn")?.addEventListener("click",showFirstPasswordSetup);
+\$("giverSetupBtn")?.addEventListener("click",giverFirstPassword);
+\$("cancelFirstSetupBtn")?.addEventListener("click",()=>{
+  \$("giverFirstSetup")?.classList.add("hidden");
+  \$("loginExisting")?.classList.remove("hidden");
   setAuthError("");
   updateUnifiedLoginMode();
 });
@@ -1422,69 +1172,48 @@ document.querySelector(".auth-brand img")?.addEventListener("click",()=>{
   logoTapTimer=setTimeout(()=>{logoTapCount=0;},1800);
   if(logoTapCount>=5){logoTapCount=0;revealAdminLogin();}
 });
-$("logoutBtn").onclick=logout;
+\$("logoutBtn").onclick=logout;
 bindMoneyInput("amount");
-$("addBtn").onclick=addAdvance;
-$("editBtn").onclick=editAdvance;
-$("deleteBtn")?.addEventListener("click",deleteAdvance);
-$("printBtn").onclick=()=>window.print();
-$("exportBtn").onclick=exportPDF;
-$("advanceDate").onchange=()=>{
-  if($("advanceDate").value.slice(0,7)!==currentMonthKey()){
-    $("advanceDate").value=isoToday();
+\$("addBtn").onclick=addAdvance;
+\$("editBtn").onclick=editAdvance;
+\$("deleteBtn")?.addEventListener("click",deleteAdvance);
+\$("printBtn").onclick=()=>window.print();
+\$("exportBtn").onclick=exportPDF;
+\$("advanceDate").onchange=()=>{
+  if(\$("advanceDate").value.slice(0,7)!==currentMonthKey()){
+    \$("advanceDate").value=isoToday();
     toast("الصفحة تعرض الشهر الحالي فقط");
   }
-  setMonthHeader();
-  renderAdvances();
+  setMonthHeader(); renderAdvances();
 };
-$("savePeopleBulk").onclick=savePeopleBulk;
-$("closePeople")?.addEventListener('click',()=>{$("peopleModal")?.classList.remove('show');document.querySelector('.inline-form')?.classList.remove('hidden');document.querySelector('.bulk-people')?.classList.remove('hidden');});
-$("savePerson").onclick=savePerson;
-$('closeLeave')?.addEventListener('click',()=>{selectedLeaveId=null;$('leaveModal')?.classList.remove('show');openLeavesMenu();});
-$('leaveType')?.addEventListener('change',toggleLeaveFields);
-$('saveLeave')?.addEventListener('click',saveLeave);
-$('homeFromAdvancesBtn')?.addEventListener('click',()=>setMainView('home'));$('sectionFromAdvancesBtn')?.addEventListener('click',openAdvancesMenu);
-$('homeFromLeavesBtn')?.addEventListener('click',()=>setMainView('home'));$('sectionFromLeavesBtn')?.addEventListener('click',openLeavesMenu);$('leaveWorkspaceHomeBtn')?.addEventListener('click',()=>setMainView('home'));$('leaveWorkspaceSectionBtn')?.addEventListener('click',openLeavesMenu);$('leaveWorkspaceAddBtn')?.addEventListener('click',()=>openLeaveWorkspace('add'));$('leaveWorkspaceEditBtn')?.addEventListener('click',()=>openLeaveWorkspace('edit'));
-$('advancesNav')?.addEventListener('click',()=>setMainView('advances'));
-$('advanceMenuAddBtn')?.addEventListener('click',()=>openAdvanceWorkspace('add'));
-$('advanceMenuEditBtn')?.addEventListener('click',()=>openAdvanceWorkspace('edit'));
-$('advanceMenuAddEmployeeBtn')?.addEventListener('click',()=>openEmployeeManager('add'));
-$('advanceMenuDeleteEmployeeBtn')?.addEventListener('click',()=>openEmployeeManager('delete'));
-$('advanceMenuPrintBtn')?.addEventListener('click',()=>openAdvanceWorkspace('print'));
-$('advanceMenuPdfBtn')?.addEventListener('click',()=>openAdvanceWorkspace('pdf'));
-$('advanceMenuAllDetailsBtn')?.addEventListener('click',()=>openAdvanceWorkspace('all'));
-$('advanceMenuEmployeeDetailsBtn')?.addEventListener('click',()=>openAdvanceWorkspace('employee'));
-$('advanceMenuHomeBtn')?.addEventListener('click',()=>setMainView('home'));
-$('advanceDetailsEmployeeSelect')?.addEventListener('change',()=>{applyEmployeeSelectColor('advanceDetailsEmployeeSelect');updateDetailSelectDisplay('advanceDetailsEmployeeSelect','advanceDetailsEmployeeSelectDisplay');renderEmployeeAdvanceDetails();});$('employeeAdvancesMonth')?.addEventListener('change',()=>{const s=$('employeeAdvancesMonth');if(s){s.style.color='#26352f';s.style.webkitTextFillColor='#26352f';s.style.fontWeight='700';}updateDetailSelectDisplay('employeeAdvancesMonth','employeeAdvancesMonthDisplay');renderEmployeeAdvanceDetails();});
-$('allAdvancesMonth')?.addEventListener('change',()=>{updateDetailSelectDisplay('allAdvancesMonth','allAdvancesMonthDisplay');renderAllAdvanceDetails();});
+\$("savePeopleBulk").onclick=savePeopleBulk;
+$("closePeople")?.addEventListener('click',()=>{$("peopleModal")?.classList.remove('show');});
+\$("savePerson").onclick=savePerson;
+\$('closeLeave')?.addEventListener('click',()=>{selectedLeaveId=null;$('leaveModal')?.classList.remove('show');openLeavesMenu();});$('leaveType')?.addEventListener('change',toggleLeaveFields);
+$('saveLeave')?.addEventListener('click',saveLeave);$('homeFromAdvancesBtn')?.addEventListener('click',()=>setMainView('home'));$('sectionFromAdvancesBtn')?.addEventListener('click',openAdvancesMenu);$('homeFromLeavesBtn')?.addEventListener('click',()=>setMainView('home'));$('sectionFromLeavesBtn')?.addEventListener('click',openLeavesMenu);$('leaveWorkspaceHomeBtn')?.addEventListener('click',()=>setMainView('home'));$('leaveWorkspaceSectionBtn')?.addEventListener('click',openLeavesMenu);$('leaveWorkspaceAddBtn')?.addEventListener('click',()=>openLeaveWorkspace('add'));$('leaveWorkspaceEditBtn')?.addEventListener('click',()=>openLeaveWorkspace('edit'));$('advancesNav')?.addEventListener('click',()=>setMainView('advances'));
+$('advanceMenuAddBtn')?.addEventListener('click',()=>openAdvanceWorkspace('add'));$('advanceMenuEditBtn')?.addEventListener('click',()=>openAdvanceWorkspace('edit'));
+$('advanceMenuAddEmployeeBtn')?.addEventListener('click',()=>openEmployeeManager('add'));$('advanceMenuDeleteEmployeeBtn')?.addEventListener('click',()=>openEmployeeManager('delete'));
+$('advanceMenuPrintBtn')?.addEventListener('click',()=>openAdvanceWorkspace('print'));$('advanceMenuPdfBtn')?.addEventListener('click',()=>openAdvanceWorkspace('pdf'));
+$('advanceMenuAllDetailsBtn')?.addEventListener('click',()=>openAdvanceWorkspace('all'));$('advanceMenuEmployeeDetailsBtn')?.addEventListener('click',()=>openAdvanceWorkspace('employee'));
+$('advanceMenuHomeBtn')?.addEventListener('click',()=>setMainView('home'));$('advanceDetailsEmployeeSelect')?.addEventListener('change',()=>{applyEmployeeSelectColor('advanceDetailsEmployeeSelect');updateDetailSelectDisplay('advanceDetailsEmployeeSelect','advanceDetailsEmployeeSelectDisplay');renderEmployeeAdvanceDetails();});
+$('employeeAdvancesMonth')?.addEventListener('change',()=>{updateDetailSelectDisplay('employeeAdvancesMonth','employeeAdvancesMonthDisplay');renderEmployeeAdvanceDetails();});$('allAdvancesMonth')?.addEventListener('change',()=>{updateDetailSelectDisplay('allAdvancesMonth','allAdvancesMonthDisplay');renderAllAdvanceDetails();});
 
-$('backToAdvancesMenuBtn')?.addEventListener('click',openAdvancesMenu);
-$('backToAdvancesMenuAllBtn')?.addEventListener('click',openAdvancesMenu);
-$('backToAdvancesMenuEmployeeBtn')?.addEventListener('click',openAdvancesMenu);
-$('leavesNav')?.addEventListener('click',()=>setMainView('leaves'));
-$('leavesMenuHomeBtn')?.addEventListener('click',()=>setMainView('home'));
-$('leaveMenuAddBtn')?.addEventListener('click',()=>openLeaveWorkspace('add'));
-$('leaveMenuEditBtn')?.addEventListener('click',()=>openLeaveWorkspace('edit'));
-$('leaveMenuAllDetailsBtn')?.addEventListener('click',()=>openLeaveWorkspace('all'));
-$('leaveMenuEmployeeDetailsBtn')?.addEventListener('click',()=>openLeaveWorkspace('employee'));
-$('leaveMenuPrintBtn')?.addEventListener('click',()=>openLeaveWorkspace('print'));
-$('leaveMenuPdfBtn')?.addEventListener('click',()=>openLeaveWorkspace('pdf'));
-$('editLeaveBtn')?.addEventListener('click',()=>openLeaveWorkspace('edit'));
-$('leaveDetailsEmployeeSelect')?.addEventListener('change',()=>{applyEmployeeSelectColor('leaveDetailsEmployeeSelect');renderEmployeeLeaveReport();});
-$('allLeavesMonth')?.addEventListener('change',renderAllLeaveDetails);
-$('employeeLeavesMonth')?.addEventListener('change',renderEmployeeLeaveReport);
-$('backToLeavesMenuAllBtn')?.addEventListener('click',openLeavesMenu);
-$('backToLeavesMenuEmployeeBtn')?.addEventListener('click',openLeavesMenu);
-$('penaltiesNav')?.addEventListener('click',()=>setMainView('penalties'));
-$('rewardsNav')?.addEventListener('click',()=>{setMainView('rewards');toast('قسم المكافئات سيتم تفعيله في المرحلة القادمة');});
-$('addLeaveBtn')?.addEventListener('click',()=>openLeaveModal());
-$('addEmployeeBtn')?.addEventListener('click',()=>openEmployeeManager('add'));
-$('deleteEmployeeBtn')?.addEventListener('click',()=>openEmployeeManager('delete'));
-$('changePasswordBtn')?.addEventListener('click',()=>openPasswordModal(false));
-$('forgotPasswordBtn')?.addEventListener('click',()=>openPasswordModal(true));
+\$('backToAdvancesMenuBtn')?.addEventListener('click',openAdvancesMenu);
+$('backToAdvancesMenuAllBtn')?.addEventListener('click',openAdvancesMenu);$('backToAdvancesMenuEmployeeBtn')?.addEventListener('click',openAdvancesMenu);
+$('leavesNav')?.addEventListener('click',()=>setMainView('leaves'));$('leavesMenuHomeBtn')?.addEventListener('click',()=>setMainView('home'));
+$('leaveMenuAddBtn')?.addEventListener('click',()=>openLeaveWorkspace('add'));$('leaveMenuEditBtn')?.addEventListener('click',()=>openLeaveWorkspace('edit'));
+$('leaveMenuAllDetailsBtn')?.addEventListener('click',()=>openLeaveWorkspace('all'));$('leaveMenuEmployeeDetailsBtn')?.addEventListener('click',()=>openLeaveWorkspace('employee'));
+$('leaveMenuPrintBtn')?.addEventListener('click',()=>openLeaveWorkspace('print'));$('leaveMenuPdfBtn')?.addEventListener('click',()=>openLeaveWorkspace('pdf'));
+$('editLeaveBtn')?.addEventListener('click',()=>openLeaveWorkspace('edit'));$('leaveDetailsEmployeeSelect')?.addEventListener('change',()=>{applyEmployeeSelectColor('leaveDetailsEmployeeSelect');renderEmployeeLeaveReport();});
+$('allLeavesMonth')?.addEventListener('change',renderAllLeaveDetails);$('employeeLeavesMonth')?.addEventListener('change',renderEmployeeLeaveReport);
+$('backToLeavesMenuAllBtn')?.addEventListener('click',openLeavesMenu);$('backToLeavesMenuEmployeeBtn')?.addEventListener('click',openLeavesMenu);
+$('penaltiesNav')?.addEventListener('click',()=>setMainView('penalties'));$('rewardsNav')?.addEventListener('click',()=>{setMainView('rewards');toast('قريباً');});
+\$('addLeaveBtn')?.addEventListener('click',()=>openLeaveModal());
+$('addEmployeeBtn')?.addEventListener('click',()=>openEmployeeManager('add'));$('deleteEmployeeBtn')?.addEventListener('click',()=>openEmployeeManager('delete'));
+$('changePasswordBtn')?.addEventListener('click',()=>openPasswordModal(false));$('forgotPasswordBtn')?.addEventListener('click',()=>openPasswordModal(true));
 $('closePassword')?.addEventListener('click',()=>$('passwordModal')?.classList.remove('show'));
-$('savePassword')?.addEventListener('click',savePasswordChange);
-$('salaryNav')?.addEventListener('click',()=>setMainView('salary'));$('salaryMenuHomeBtn')?.addEventListener('click',()=>setMainView('home'));$('salaryEntryBtn')?.addEventListener('click',openSalaryEntry);$('salaryReportBtn')?.addEventListener('click',openSalaryReport);$('salaryEmployeeBtn')?.addEventListener('click',openSalaryEmployee);$('salaryEntryHomeBtn')?.addEventListener('click',showSalaryMenu);$('salaryReportHomeBtn')?.addEventListener('click',showSalaryMenu);$('salaryEmployeeHomeBtn')?.addEventListener('click',showSalaryMenu);$('salaryReportPrintBtn')?.addEventListener('click',printSalaryReport);$('salaryReportPdfBtn')?.addEventListener('click',exportSalaryReportPDF);$('salaryEmployeePrintBtn')?.addEventListener('click',printSalaryEmployee);$('salaryEmployeePdfBtn')?.addEventListener('click',exportSalaryEmployeePDF);$('salaryReportMonth')?.addEventListener('change',renderSalaryReport);$('salaryEmployeeMonth')?.addEventListener('change',renderSalaryEmployeeReport);$('salaryEmployeeSelect')?.addEventListener('change',renderSalaryEmployeeReport);$('saveSalaryBtn')?.addEventListener('click',saveSalary);$('salaryDeleteBtn')?.addEventListener('click',()=>{const id=$('salaryEmployeeInput')?.value;const month=$('salaryMonthInput')?.value;const s=salaries.find(x=>String(x.employee_id)===String(id)&&salaryMonthKey(x.salary_month)===month);if(s)deleteSalary(s.id);else toast('لا يوجد راتب محفوظ لهذا الموظف في الشهر المحدد');});$('salaryAnnualRaiseBtn')?.addEventListener('click',()=>{const id=$('salaryEmployeeInput')?.value;const month=$('salaryMonthInput')?.value;const s=salaries.find(x=>String(x.employee_id)===String(id)&&salaryMonthKey(x.salary_month)===month);if(s)annualRaiseSalary(s.id);else toast('احفظ الراتب أولاً ثم طبّق الزيادة السنوية');});$('salaryEmployeeInput')?.addEventListener('change',()=>{renderSalaryEmployeePicker('salaryEmployeeInput');loadSalaryFormRecord();});$('salaryMonthInput')?.addEventListener('change',()=>{updateSalaryMonthDisplay('salaryMonthInput');loadSalaryFormRecord();updateSalaryHoursPreview();});$('salaryOfficialHours')?.addEventListener('input',updateSalaryHoursPreview);$('salaryOvertimeDailyHours')?.addEventListener('input',updateOvertimePreview);$('salaryAdvanceDeduction')?.addEventListener('input',()=>{const v=Math.max(0,Number($('salaryAdvanceDeduction').value||0));if($('salaryAdvanceDeduction'))$('salaryAdvanceDeduction').value=v;});$('penaltiesMenuHomeBtn')?.addEventListener('click',()=>setMainView('home'));$('penaltyAddBtn')?.addEventListener('click',openPenaltyEntry);$('penaltyEditBtn')?.addEventListener('click',openPenaltyEntry);$('penaltyAllReportBtn')?.addEventListener('click',openPenaltyAll);$('penaltyEmployeeReportBtn')?.addEventListener('click',openPenaltyEmployee);$('penaltyEntryHomeBtn')?.addEventListener('click',showPenaltyMenu);$('penaltyAllHomeBtn')?.addEventListener('click',showPenaltyMenu);$('penaltyEmployeeHomeBtn')?.addEventListener('click',showPenaltyMenu);$('penaltyReportMonth')?.addEventListener('change',renderPenaltyReports);$('penaltyEmployeeMonth')?.addEventListener('change',renderPenaltyEmployeeReport);$('penaltyEmployeeSelect')?.addEventListener('change',renderPenaltyEmployeeReport);$('savePenaltyBtn')?.addEventListener('click',savePenalty);$('cancelPenaltyEditBtn')?.addEventListener('click',()=>{selectedPenaltyId=null;clearPenaltyForm();});$('advanceAllHomeBtn')?.addEventListener('click',()=>setMainView('home'));$('advanceEmployeeHomeBtn')?.addEventListener('click',()=>setMainView('home'));$('leaveAllHomeBtn')?.addEventListener('click',()=>setMainView('home'));$('leaveEmployeeHomeBtn')?.addEventListener('click',()=>setMainView('home'));
+$('savePassword')?.addEventListener('click',savePasswordChange);$('salaryNav')?.addEventListener('click',()=>setMainView('salary'));$('salaryMenuHomeBtn')?.addEventListener('click',()=>setMainView('home'));$('salaryEntryBtn')?.addEventListener('click',openSalaryEntry);$('salaryReportBtn')?.addEventListener('click',openSalaryReport);$('salaryEmployeeBtn')?.addEventListener('click',openSalaryEmployee);$('salaryEntryHomeBtn')?.addEventListener('click',showSalaryMenu);$('salaryReportHomeBtn')?.addEventListener('click',showSalaryMenu);$('salaryEmployeeHomeBtn')?.addEventListener('click',showSalaryMenu);$('salaryReportMonth')?.addEventListener('change',renderSalaryReport);$('salaryEmployeeMonth')?.addEventListener('change',renderSalaryEmployeeReport);$('salaryEmployeeSelect')?.addEventListener('change',renderSalaryEmployeeReport);$('saveSalaryBtn')?.addEventListener('click',saveSalary);$('salaryEmployeeInput')?.addEventListener('change',()=>{loadSalaryFormRecord();});
+$('salaryMonthInput')?.addEventListener('change',()=>{loadSalaryFormRecord();});$('penaltiesMenuHomeBtn')?.addEventListener('click',()=>setMainView('home'));$('penaltyAddBtn')?.addEventListener('click',openPenaltyEntry);$('penaltyEditBtn')?.addEventListener('click',openPenaltyEntry);$('penaltyAllReportBtn')?.addEventListener('click',openPenaltyAll);$('penaltyEmployeeReportBtn')?.addEventListener('click',openPenaltyEmployee);$('penaltyEntryHomeBtn')?.addEventListener('click',showPenaltyMenu);$('penaltyAllHomeBtn')?.addEventListener('click',showPenaltyMenu);$('penaltyEmployeeHomeBtn')?.addEventListener('click',showPenaltyMenu);$('penaltyReportMonth')?.addEventListener('change',()=>{});$('penaltyEmployeeMonth')?.addEventListener('change',()=>{});$('penaltyEmployeeSelect')?.addEventListener('change',()=>{});$('savePenaltyBtn')?.addEventListener('click',savePenalty);$('cancelPenaltyEditBtn')?.addEventListener('click',()=>{selectedPenaltyId=null;clearPenaltyForm();});
 initCustomSelects();
 
 document.addEventListener("keydown",e=>{
