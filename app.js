@@ -849,19 +849,91 @@ async function savePeopleBulk(){
 }
 
 async function exportPDF(){
-  const month=currentMonthKey();
-  const report=document.querySelector(".page");
-  if(!window.html2pdf) return toast("تعذر تحميل أداة PDF، أعد تحميل الصفحة");
-  const oldWidth=report.style.width;
-  report.style.width="1180px";
-  const options={
-    margin:[6,6,6,6],
-    filename:`سلف_${month}.pdf`,
-    image:{type:"jpeg",quality:0.98},
-    html2canvas:{scale:2,useCORS:true,backgroundColor:"#ffffff",scrollX:0,scrollY:0},
-    jsPDF:{unit:"mm",format:"a4",orientation:"landscape"},
-    pagebreak:{mode:["css","legacy"],before:".print-details",avoid:[".summary-grid",".print-details-head","tr"]}
+  const month = currentMonthKey();
+  const report = document.querySelector(".page");
+
+  if(!window.html2pdf){
+    return toast("تعذر تحميل أداة PDF، أعد تحميل الصفحة");
+  }
+
+  if(!report){
+    return toast("تعذر العثور على صفحة التقرير");
+  }
+
+  const employeeSummaryCard = $("employeeSummaryCard");
+
+  const oldWidth = report.style.width;
+  const oldSummaryDisplay =
+    employeeSummaryCard?.style.getPropertyValue("display") || "";
+  const oldSummaryPriority =
+    employeeSummaryCard?.style.getPropertyPriority("display") || "";
+
+  report.style.width = "1180px";
+
+  const options = {
+    margin: [6, 6, 6, 6],
+    filename: `سلف_${month}.pdf`,
+    image: {
+      type: "jpeg",
+      quality: 0.98
+    },
+    html2canvas: {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: "#ffffff",
+      scrollX: 0,
+      scrollY: 0
+    },
+    jsPDF: {
+      unit: "mm",
+      format: "a4",
+      orientation: "landscape"
+    },
+    pagebreak: {
+      mode: ["css", "legacy"],
+      before: ".print-details",
+      avoid: [".summary-grid", ".print-details-head", "tr"]
+    }
   };
+
+  try {
+    document.body.classList.add("pdf-exporting");
+
+    // إظهار ملخص مجموع السلف لكل موظف داخل ملف PDF
+    employeeSummaryCard?.style.setProperty(
+      "display",
+      "block",
+      "important"
+    );
+
+    await html2pdf()
+      .set(options)
+      .from(report)
+      .save();
+
+  } catch(e) {
+    console.error(e);
+    toast("تعذر إنشاء ملف PDF");
+
+  } finally {
+    document.body.classList.remove("pdf-exporting");
+
+    report.style.width = oldWidth;
+
+    // إعادة إعدادات البطاقة كما كانت قبل التصدير
+    if(employeeSummaryCard){
+      if(oldSummaryDisplay){
+        employeeSummaryCard.style.setProperty(
+          "display",
+          oldSummaryDisplay,
+          oldSummaryPriority
+        );
+      } else {
+        employeeSummaryCard.style.removeProperty("display");
+      }
+    }
+  }
+}
   try{
     document.body.classList.add("pdf-exporting");
     await html2pdf().set(options).from(report).save();
