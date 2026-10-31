@@ -934,16 +934,6 @@ async function exportPDF(){
     }
   }
 }
-  try{
-    document.body.classList.add("pdf-exporting");
-    await html2pdf().set(options).from(report).save();
-  }catch(e){
-    console.error(e); toast("تعذر إنشاء ملف PDF");
-  }finally{
-    document.body.classList.remove("pdf-exporting");
-    report.style.width=oldWidth;
-  }
-}
 
 
 function monthKeyFromDate(value){
