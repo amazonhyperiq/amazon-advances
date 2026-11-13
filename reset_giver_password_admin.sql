@@ -1,0 +1,5 @@
+-- DEPRECATED: لا تشغّل هذا الملف.
+-- النسخة القديمة كانت تحدّث advance_givers.password_hash، بينما تسجيل الدخول
+-- يعتمد على advance_giver_accounts.password_hash.
+-- استخدم الملف الصحيح بدلاً منه:
+-- supabase/FIX-ADVANCES-AUTH-SESSIONS-AND-PASSWORDS.sql
