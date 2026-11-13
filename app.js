@@ -1,8 +1,3 @@
-
-
-
-رمز JS
-app
 const SUPABASE_URL = "https://vvexorzjkpwduykinwsw.supabase.co";
 const SUPABASE_KEY = "sb_publishable_RoMHq19grLJWNu95uPSwug_XwiKt2bB";
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -1904,4 +1899,3 @@ document.addEventListener("keydown",e=>{
   if(e.ctrlKey&&e.key==="Enter"){e.preventDefault();addAdvance();}
 });
 init();
-جارٍ تحليل البيانات
