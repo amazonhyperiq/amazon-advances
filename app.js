@@ -1,3 +1,8 @@
+
+
+
+رمز JS
+app
 const SUPABASE_URL = "https://vvexorzjkpwduykinwsw.supabase.co";
 const SUPABASE_KEY = "sb_publishable_RoMHq19grLJWNu95uPSwug_XwiKt2bB";
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -5,8 +10,6 @@ const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 // Web Push configuration. IMPORTANT: this must be the 65-byte VAPID public key (usually 87 base64url characters).
 // Do not put VAPID_PRIVATE_KEY here.
 const PUSH_VAPID_PUBLIC_KEY = "BKr8bAqliSKJYef6L974YhlnjPzWUqBI4tw9zw4fpihhv0E6Aw-pI5iN2ZLIv-P7klAvkVTJRXYldnd1hQfPzsg";
-
-
 
 let authRole = null;
 let authToken = null;
@@ -52,16 +55,12 @@ function restoreAuth(){try{
 
 async function loadGiverLoginList(){
   setAuthError("");
-  // أسماء المانحين في شاشة الدخول تُجلب عبر الدالة الآمنة حتى لا تعتمد على RLS المباشر للجدول.
   let {data,error}=await db.rpc("get_active_givers_for_login");
   if(error){
-    // توافق مع النسخ التي لا تحتوي الدالة بعد.
     const fallback=await db.from("advance_givers").select("id,name,is_active").eq("is_active",true).order("name");
     data=fallback.data; error=fallback.error;
   }
   if(error){setAuthError("تعذر تحميل أسماء المانحين: "+error.message);return;}
-  // إذا أعادت دالة الدخول قائمة فارغة لأي سبب (مثل نسخة قديمة من الدالة أو كاش المخطط)،
-  // نعيد القراءة مباشرة من advance_givers قبل عرض الشاشة حتى لا تبقى القائمة فارغة.
   if(!error && (!data || data.length===0)) {
     const direct=await db.from("advance_givers").select("id,name,is_active").eq("is_active",true).order("name",{ascending:true});
     if(!direct.error && Array.isArray(direct.data) && direct.data.length) data=direct.data;
@@ -272,18 +271,32 @@ async function saveLeave(){
   if(selectedLeaveId) result=await db.from('advance_leaves').update(row).eq('id',selectedLeaveId);
   else result=await db.from('advance_leaves').insert(row);
   if(result.error)return toast('تعذر حفظ الإجازة: '+result.error.message);
-  const wasEdit=!!selectedLeaveId; $('leaveModal').classList.remove('show'); selectedLeaveId=null; await loadLeaves();
- await emitAdvancePushEvent(
-  wasEdit ? 'leave_updated' : 'leave_added',
-  '📅 قسم الإجازات والزمنيات',
-  wasEdit ? 'تم تعديل إجازة في نظام سلف موظفي وعمال أمازون' : 'تمت إضافة إجازة جديدة في نظام سلف موظفي وعمال أمازون'
-);
-  toast(wasEdit?'تم تعديل الإجازة بنجاح':'تمت إضافة الإجازة بنجاح'); if(!wasEdit) openLeavesMenu(); else openLeavesMenu();
+  const wasEdit=!!selectedLeaveId;
+  const empName=employees.find(x=>String(x.id)===String(employee_id))?.name||'غير محدد';
+  const giverName=givers.find(x=>String(x.id)===String(giver_id))?.name||authName||'المدير';
+  const typeTxt=leaveTypeLabel(leave_type);
+  const rangeTxt=leaveRangeLabel(row);
+  $('leaveModal').classList.remove('show'); selectedLeaveId=null; await loadLeaves();
+  await emitAdvancePushEvent(
+    wasEdit ? 'leave_updated' : 'leave_added',
+    wasEdit ? `📅 تعديل إجازة: ${empName}` : `📅 إجازة جديدة: ${empName}`,
+    `الموظف: ${empName} | النوع: ${typeTxt} | الفترة: ${rangeTxt} | المسؤول: ${giverName}${notes?' | ملاحظات: '+notes:''}`
+  );
+  toast(wasEdit?'تم تعديل الإجازة بنجاح':'تمت إضافة الإجازة بنجاح'); openLeavesMenu();
 }
 window.editLeave=id=>openLeaveModal(id);
 async function deleteLeave(id){
   if(authRole!=='manager')return toast('الحذف للمدير فقط');
-  confirmBox('هل تريد حذف الإجازة المحددة؟',async()=>{const {error}=await db.from('advance_leaves').delete().eq('id',id);if(error)return toast('تعذر حذف الإجازة: '+error.message);await loadLeaves();await emitAdvancePushEvent('leave_deleted','حذف إجازة','تم حذف إجازة من نظام سلف موظفي وعمال أمازون');toast('تم حذف الإجازة بنجاح');});
+  const l=leaves.find(x=>String(x.id)===String(id));
+  const empName=l?.employees?.name||'غير محدد';
+  const rangeTxt=l?leaveRangeLabel(l):'';
+  confirmBox('هل تريد حذف الإجازة المحددة؟',async()=>{
+    const {error}=await db.from('advance_leaves').delete().eq('id',id);
+    if(error)return toast('تعذر حذف الإجازة: '+error.message);
+    await loadLeaves();
+    await emitAdvancePushEvent('leave_deleted',`🗑️ حذف إجازة: ${empName}`,`تم حذف إجازة الموظف: ${empName} (${rangeTxt}) بواسطة ${authName||'المدير'}`);
+    toast('تم حذف الإجازة بنجاح');
+  });
 }
 
 let pushRegistrationPromise=null;
@@ -322,7 +335,6 @@ async function subscribeForPush(){
     const expectedKey=urlBase64ToUint8Array(PUSH_VAPID_PUBLIC_KEY);
     let subscription=await registration.pushManager.getSubscription();
 
-    // Remove only this device's stale subscription if it was created with another VAPID key.
     if(subscription){
       const currentKey=subscription.options?.applicationServerKey;
       const currentBytes=currentKey ? new Uint8Array(currentKey) : null;
@@ -363,12 +375,8 @@ async function subscribeForPush(){
   }
 }
 
-
 async function emitAdvancePushEvent(eventType, title, body) {
   try {
-    // إنشاء الحدث عبر RPC آمن يعيد معرّف السجل نفسه.
-    // هذا يتجنب INSERT ... SELECT، الذي قد يُرفض بسبب RLS على SELECT
-    // حتى عندما تسمح سياسة INSERT بإنشاء الحدث.
     const { data: eventId, error: insertError } = await db.rpc(
       "create_advance_push_event",
       {
@@ -391,7 +399,6 @@ async function emitAdvancePushEvent(eventType, title, body) {
       return false;
     }
 
-    // إرسال الحدث الحالي فقط؛ لا تتم معالجة أحداث قديمة متراكمة.
     const { data, error: sendError } = await db.functions.invoke(
       "send-push-notifications",
       { body: { event_id: eventIdNumber } }
@@ -417,7 +424,6 @@ async function emitAdvancePushEvent(eventType, title, body) {
     return false;
   }
 }
-
 
 function installAutomaticPushSetup(){
   if(window.__amazonPushClickInstalled) return;
@@ -613,7 +619,6 @@ function colorStyle(name){
 }
 
 function renderAdvances(){
-  // الصفحة الرئيسية تعرض سلف الشهر الحالي فقط. السلف السابقة تبقى محفوظة في قاعدة البيانات.
   const month=currentMonthKey();
   const rows=advances.filter(a=>String(a.advance_date).slice(0,7)===month);
   const body=$("advancesTable").querySelector("tbody");
@@ -745,6 +750,14 @@ async function addAdvance(){
   try{
     if(authRole==='giver'){
       result=await db.rpc("create_advance_for_giver",{p_token:authToken,p_employee_id:employee_id,p_amount:amount,p_advance_date:date,p_notes:notes});
+      // في حال فشل دالة RPC الخاصة بجلسة المانح بسبب انتهاء الجلسة أو عدم تطابق التوكن، نمرر الطلب عبر الدالة المباشرة مع معرف المانح
+      if(result?.error){
+        console.warn("create_advance_for_giver failed, falling back to create_advance with giverId:", result.error);
+        const fallbackGiverId = currentGiverId();
+        if(fallbackGiverId){
+          result=await db.rpc("create_advance",{p_employee_id:employee_id,p_amount:amount,p_advance_date:date,p_giver_id:fallbackGiverId,p_cashier_id:null,p_notes:notes});
+        }
+      }
     }else{
       result=await db.rpc("create_advance",{p_employee_id:employee_id,p_amount:amount,p_advance_date:date,p_giver_id:$("giverSelect").value||null,p_cashier_id:null,p_notes:notes});
     }
@@ -757,6 +770,10 @@ async function addAdvance(){
     const detail=result.error.hint||result.error.details||result.error.message||"خطأ غير معروف";
     return toast("تعذر حفظ السلفة: "+detail);
   }
+  const empName = employees.find(x=>String(x.id)===String(employee_id))?.name || "غير محدد";
+  const giverName = authRole==='giver' ? (authName || "مانح") : (givers.find(x=>String(x.id)===String($("giverSelect").value))?.name || "المدير");
+  const dateLabel = arDate(date);
+
   try{await loadAdvances();}
   catch(err){
     console.error("advance refresh failed after successful insert",err);
@@ -766,20 +783,15 @@ async function addAdvance(){
   toast("تمت إضافة السلفة بنجاح");
   try{await subscribeForPush();}catch(err){console.warn("Push setup after advance failed",err);}
 
-console.log("PUSH DEBUG: وصل التنفيذ بعد حفظ السلفة");
-
-try {
-  const pushResult = await emitAdvancePushEvent(
-    "advance_added",
-    "سلفة جديدة",
-    "تمت إضافة سلفة جديدة في نظام سلف موظفي وعمال أمازون"
-  );
-  console.log("PUSH DEBUG: نتيجة الإشعار:", pushResult);
-} catch (err) {
-  console.error("PUSH DEBUG: فشل الإشعار:", err);
-  toast("فشل الإشعار؛ افتح Console لمعرفة السبب");
-}
-
+  try {
+    await emitAdvancePushEvent(
+      "advance_added",
+      `💰 سلفة جديدة: ${empName} (${money(amount)} د.ع)`,
+      `الموظف: ${empName} | المبلغ: ${money(amount)} د.ع | المانح: ${giverName} | التاريخ: ${dateLabel}${notes ? ' | ملاحظات: ' + notes : ''}`
+    );
+  } catch (err) {
+    console.error("PUSH DEBUG: فشل الإشعار:", err);
+  }
 }
 
 async function editAdvance(){
@@ -788,28 +800,45 @@ async function editAdvance(){
   if(!$("employeeSelect").value) return toast("اختر الموظف أولاً");
   const amount=numericValue($("amount").value);
   if(!amount || amount<=0) return toast("أدخل مبلغ السلفة");
+  const employee_id=$("employeeSelect").value;
+  const advance_date=$("advanceDate").value;
+  const giver_id=$("giverSelect").value||null;
+  const notes=$("notes").value.trim()||null;
   const {error}=await db.from("advances").update({
-    employee_id:$("employeeSelect").value,
-    amount:amount,
-    advance_date:$("advanceDate").value,
-    giver_id:$("giverSelect").value||null,
+    employee_id,
+    amount,
+    advance_date,
+    giver_id,
     cashier_id:null,
-    notes:$("notes").value.trim()||null
+    notes
   }).eq("id",selectedAdvanceId);
   if(error) return toast("تعذر التعديل: "+error.message);
+  const empName = employees.find(x=>String(x.id)===String(employee_id))?.name || "غير محدد";
+  const giverName = givers.find(x=>String(x.id)===String(giver_id))?.name || "غير محدد";
   clearForm(); await loadAdvances();
-  await emitAdvancePushEvent("advance_updated","تعديل سلفة","تم تعديل سلفة في نظام سلف موظفي وعمال أمازون");
+  await emitAdvancePushEvent(
+    "advance_updated",
+    `✏️ تعديل سلفة: ${empName} (${money(amount)} د.ع)`,
+    `الموظف: ${empName} | المبلغ الجديد: ${money(amount)} د.ع | المانح: ${giverName} | التاريخ: ${arDate(advance_date)}${notes ? ' | ملاحظات: ' + notes : ''}`
+  );
   toast("تم تعديل السلفة بنجاح");
 }
 
 async function deleteAdvance(){
   if(authRole!=="manager") return toast("هذه الصلاحية للمدير فقط");
   if(!selectedAdvanceId) return toast("حدد السلفة من الجدول أولاً");
+  const a=advances.find(x=>String(x.id)===String(selectedAdvanceId));
+  const empName=a?.employees?.name||'غير محدد';
+  const amt=a?money(a.amount):'0';
   confirmBox("هل تريد حذف السلفة المحددة نهائياً؟",async()=>{
     const {error}=await db.from("advances").delete().eq("id",selectedAdvanceId);
     if(error) return toast("تعذر الحذف: "+error.message);
     selectedAdvanceId=null; clearForm(); await loadAdvances();
-    await emitAdvancePushEvent("advance_deleted","حذف سلفة","تم حذف سلفة من نظام سلف موظفي وعمال أمازون");
+    await emitAdvancePushEvent(
+      "advance_deleted",
+      `🗑️ حذف سلفة: ${empName}`,
+      `تم حذف سلفة الموظف: ${empName} بمبلغ ${amt} د.ع بواسطة ${authName||'المدير'}`
+    );
     toast("تم حذف السلفة بنجاح");
   });
 }
@@ -945,7 +974,6 @@ async function exportPDF(){
   try {
     document.body.classList.add("pdf-exporting");
 
-    // إظهار ملخص مجموع السلف لكل موظف داخل ملف PDF
     employeeSummaryCard?.style.setProperty(
       "display",
       "block",
@@ -966,7 +994,6 @@ async function exportPDF(){
 
     report.style.width = oldWidth;
 
-    // إعادة إعدادات البطاقة كما كانت قبل التصدير
     if(employeeSummaryCard){
       if(oldSummaryDisplay){
         employeeSummaryCard.style.setProperty(
@@ -980,7 +1007,6 @@ async function exportPDF(){
     }
   }
 }
-
 
 function monthKeyFromDate(value){
   return String(value||'').slice(0,7);
@@ -1069,7 +1095,6 @@ function renderEmployeeAdvanceDetails(){
   if($('employeeDetailsCount'))$('employeeDetailsCount').textContent=String(rows.length);
   if($('employeeDetailsTotal'))$('employeeDetailsTotal').textContent=`${money(rows.reduce((sum,a)=>sum+Number(a.amount||0),0))} د.ع`;
 }
-
 
 function leaveMonthKeyFromRecord(l){
   if(l.leave_type==='time') return monthKeyFromDate(l.leave_date);
@@ -1245,7 +1270,6 @@ function fillMonthSelect(id,all=true){
   const s=$(id);if(!s)return;
   const old=String(s.value||'');
   const ms=monthListFromData();
-  // عند فتح كشف الرواتب لأول مرة، اختر أحدث شهر له راتب محفوظ بدلاً من اختيار شهر حالي بلا بيانات.
   const salaryMonths=[...new Set((salaries||[]).map(x=>salaryMonthKey(x.salary_month)).filter(x=>/^\d{4}-\d{2}$/.test(x)))].sort((a,b)=>b.localeCompare(a));
   const preferred=ms.includes(old)?old:(salaryMonths[0]||ms[0]||currentMonthKey());
   s.innerHTML=(all?'<option value="">جميع الأشهر</option>':'<option value="">اختر الشهر</option>')+
@@ -1262,8 +1286,6 @@ function renderSalaryEmployeePicker(changedId){const inputIds=['salaryEmployeeIn
 function bindSalaryEmployeeSearch(inputId,selectId,resultsId,displayId){const input=$(inputId),results=$(resultsId),select=$(selectId),display=$(displayId);if(!input||!results||!select)return;const render=(term='')=>{const q=String(term||'').trim().toLocaleLowerCase('ar');const list=(employees||[]).filter(e=>e.is_active!==false&&(!q||String(e.name||'').toLocaleLowerCase('ar').includes(q))).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'ar')).slice(0,80);results.innerHTML=list.map(e=>`<button type="button" class="employee-search-option" data-id="${e.id}" style="background:${personColor(e.name)}"><span>${escapeHtml(e.name)}</span><small>موظف / عامل</small></button>`).join('')||'<div class="employee-search-empty">لا توجد أسماء مطابقة</div>';results.classList.toggle('show',true);};input.addEventListener('focus',()=>render(input.value));input.addEventListener('input',()=>render(input.value));results.addEventListener('click',e=>{const b=e.target.closest('[data-id]');if(!b)return;select.value=b.dataset.id;select.dispatchEvent(new Event('change',{bubbles:true}));input.value=b.querySelector('span')?.textContent||'';results.classList.remove('show');if(display){display.textContent=input.value||'اختر الموظف';display.style.background=personColor(input.value);display.style.fontWeight='800';}});document.addEventListener('click',e=>{if(!e.target.closest('.employee-search-label'))results.classList.remove('show');});}
 async function loadSalaries(){const [sr,cr]=await Promise.all([db.from('employee_salaries').select('*'),db.from('advance_carryovers').select('*').order('target_month',{ascending:true})]);if(sr.error){console.warn('employee_salaries:',sr.error.message);salaries=[];return;}const carry=cr.error?[]:(cr.data||[]);salaries=(sr.data||[]).map(s=>({...s,_carryovers:carry.filter(c=>String(c.employee_id)===String(s.employee_id)&&c.status!=='settled')}));}
 async function loadPenalties(){
-  // لا نعتمد على embedded relation هنا؛ جدول الموظفين محمّل مسبقاً في loadPeople().
-  // هذا يمنع فشل قراءة العقوبات بالكامل إذا كانت صلاحيات العلاقة مختلفة عن صلاحيات الجدول نفسه.
   const r=await db.from('employee_penalties')
     .select('id,employee_id,penalty_date,penalty_type,amount,currency,notes,created_at')
     .order('penalty_date',{ascending:false})
@@ -1341,8 +1363,7 @@ function renderSalaryReport(){
   updateSalaryMonthDisplay('salaryReportMonth');
   const rows=salaries.filter(s=>salaryMonthKey(s.salary_month)===month);
   body.innerHTML=rows.map(s=>{const e=employees.find(x=>String(x.id)===String(s.employee_id)),c=salaryCalc(s,month),u=c.currency==='USD'?'$':'د.ع';const name=e?.name||'غير محدد';return `<tr data-employee-id="${s.employee_id}">
-<td class="salary-name-cell" style="background:${personColor(name)}">${escapeHtml(name)}</td><td class="salary-nominal-cell"><strong>${money(c.nominal)} ${u}</strong></td><td class="salary-actual-hours-cell"><strong>${money(c.workHours)} س</strong><small>من 30 يوم</small></td><td class="salary-attendance-cell"><div>إجازات: ${c.dayLeaves} يوم / ${money(c.leaveDed)} ${u}</div><div>غياب: ${c.absenceDays} يوم / ${money(c.absenceDed)} ${u}</div><div>زمنيات: ${money(c.timeHours)} س / ${money(c.timeDed)} ${u}</div></td><td class="salary-overtime-cell">${money(c.otHours)} س<br>${money(c.overtime)} د.ع</td><td class="salary-advance-cell">${money(c.adv)} د.ع${c.advanceCarry?`<br><small>مدوّرة: ${money(c.advanceCarry)} د.ع</small>`:''}</td><td class="salary-penalty-cell">${money(c.directPenalty)} ${u}</td><td class="salary-second-cell">${c.secondDays} يوم<br>${money(c.secondValue)} د.ع</td><td class="salary-net-cell"><strong>${money(c.salaryNet)} ${u}</strong></td><td class="salary-status-cell"><span class="salary-status ${s.payment_status==='paid'?'paid':'pending'}">${salaryStatus(s)}</span>${s.payment_status==='paid'?`<small>${paymentDateText(s)}</small>`:''}<div class="salary-actions-inline">${s.payment_status==='paid'?'<span class="paid-mark">✓</span>':'<button class="mini-paid" onclick="event.stopPropagation();markSalaryPaid(\''+s.id+'\')">تم التسليم</button>'}${salaryRowActions(s)}</div></td></tr>`;}).join('')||'<tr><td colspan="10" class="empty-cell">لا توجد رواتب لهذا الشهر</td></tr>';
-  // صفوف كشف الرواتب للعرض فقط؛ النقر على اسم الموظف لا ينقل المستخدم إلى صفحة أخرى.
+<td class="salary-name-cell" style="background:${personColor(name)}">${escapeHtml(name)}</td><td class="salary-nominal-cell"><strong>${money(c.nominal)} ${u}</strong></td><td class="salary-actual-hours-cell"><strong>${money(c.workHours)} س</strong><small>من 30 يوم</small></td><td class="salary-attendance-cell"><div>إجازات: ${c.dayLeaves} يوم / ${money(c.leaveDed)} ${u}</div><div>غياب: ${c.absenceDays} يوم / ${money(c.absenceDed)} ${u}</div><div>زمنيات: ${money(c.timeHours)} س / ${money(c.timeDed)} ${u}</div></td><td class="salary-overtime-cell">${money(c.otHours)} س<br>${money(c.overtime)} د.ع</td><td class="salary-advance-cell">${money(c.adv)} د.ع${c.advanceCarry?`<br><small>مدوّرة: ${money(c.advanceCarry)} د.ع</small>`:''}</td><td class="salary-penalty-cell">${money(c.directPenalty)} ${u}</td><td class="salary-second-cell">${c.secondDays} يوم<br>${money(c.secondValue)} د.ع</td><td class="salary-net-cell"><strong>${money(c.salaryNet)} ${u}</strong></td><td class="salary-status-cell"><span class="salary-status ${s.payment_status==='paid'?'paid':'pending'}">${salaryStatus(s)}</span>${s.payment_status==='paid'?`<small>${paymentDateText(s)}</small>`:''}<div class="salary-actions-inline">${s.payment_status==='paid'?'<span class="paid-mark">✓</span>':'<button class="mini-paid" onclick="event.stopPropagation();markSalaryPaid(''+s.id+'')">تم التسليم</button>'}${salaryRowActions(s)}</div></td></tr>`;}).join('')||'<tr><td colspan="10" class="empty-cell">لا توجد رواتب لهذا الشهر</td></tr>';
   body.querySelectorAll('[data-employee-id]').forEach(tr=>{tr.onclick=null;tr.style.cursor='default';});
   enableSalaryTableMouseScroll();
 }
@@ -1361,19 +1382,69 @@ async function saveSalary(){
   const existing=salaries.find(x=>String(x.employee_id)===String(employee_id)&&salaryMonthKey(x.salary_month)===month);
   const due=salaryAdvanceDue(existing||{employee_id,_carryovers:salaries.flatMap(x=>x._carryovers||[]).filter(c=>String(c.employee_id)===String(employee_id))},month);
   const requestedDeduction=Math.max(0,Number($('salaryAdvanceDeduction').value||0));
-  const row={employee_id,salary_month:month+'-01',currency:$('salaryCurrency').value,nominal_salary:Number($('salaryNominal').value||0),official_hours:official,work_hours:salaryAttendance({employee_id,official_hours:official},month).actual,overtime_daily_hours:otDaily,overtime_hours:otDaily*30,advance_deduction:requestedDeduction,advance_carryover:Math.max(0,due.total-Math.min(requestedDeduction,due.total)),second_job_enabled:$('salarySecondJob').value==='true',second_job_daily_value:Number($('salarySecondJobValue').value||0),second_job_days:Math.max(0,30-salaryAttendance({employee_id,official_hours:official},month).dayLeaves-salaryAttendance({employee_id,official_hours:official},month).absenceDays)};
+  const currency=$('salaryCurrency').value;
+  const nominal=Number($('salaryNominal').value||0);
+  const u=currency==='USD'?'$':'د.ع';
+  const empName=employees.find(x=>String(x.id)===String(employee_id))?.name||'غير محدد';
+  const row={employee_id,salary_month:month+'-01',currency,nominal_salary:nominal,official_hours:official,work_hours:salaryAttendance({employee_id,official_hours:official},month).actual,overtime_daily_hours:otDaily,overtime_hours:otDaily*30,advance_deduction:requestedDeduction,advance_carryover:Math.max(0,due.total-Math.min(requestedDeduction,due.total)),second_job_enabled:$('salarySecondJob').value==='true',second_job_daily_value:Number($('salarySecondJobValue').value||0),second_job_days:Math.max(0,30-salaryAttendance({employee_id,official_hours:official},month).dayLeaves-salaryAttendance({employee_id,official_hours:official},month).absenceDays)};
   const {error}=await db.from('employee_salaries').upsert(row,{onConflict:'employee_id,salary_month'});
   if(error)return toast('تعذر حفظ الراتب: '+error.message);
-  await loadSalaries();$('saveSalaryBtn').textContent='حفظ تعديل الراتب';await emitAdvancePushEvent(existing?'salary_updated':'salary_added',existing?'تعديل راتب':'إضافة راتب',existing?'تم تعديل راتب موظف في نظام سلف موظفي وعمال أمازون':'تمت إضافة راتب موظف في نظام سلف موظفي وعمال أمازون');await maybeNotifySalaryMonthComplete(month);toast('تم حفظ راتب الموظف بنجاح');
+  await loadSalaries();$('saveSalaryBtn').textContent='حفظ تعديل الراتب';
+  await emitAdvancePushEvent(
+    existing?'salary_updated':'salary_added',
+    existing?`💵 تعديل راتب: ${empName}`:`💵 راتب جديد: ${empName}`,
+    `الموظف: ${empName} | شهر: ${monthOptionLabel(month)} | الراتب الاسمي: ${money(nominal)} ${u}`
+  );
+  await maybeNotifySalaryMonthComplete(month);toast('تم حفظ راتب الموظف بنجاح');
 }
-async function maybeNotifySalaryMonthComplete(month){const activeEmployeeIds=(employees||[]).filter(e=>e.is_active!==false).map(e=>String(e.id));const salaryEmployeeIds=new Set(salaries.filter(x=>salaryMonthKey(x.salary_month)===month).map(x=>String(x.employee_id)));if(activeEmployeeIds.length>0&&activeEmployeeIds.every(id=>salaryEmployeeIds.has(id))){try{const {data:claimed,error:claimError}=await db.rpc('claim_salary_month_notification',{p_month:month+'-01'});if(!claimError&&claimed===true)await emitAdvancePushEvent('salary_month_completed','نزول الرواتب',`تم إكمال رواتب شهر ${monthOptionLabel(month)} وأصبحت الرواتب جاهزة للصرف`);}catch(err){console.warn('Salary month notification claim failed',err);}}}
-async function markSalaryPaid(id){if(authRole!=='manager')return toast('هذه الصلاحية للمدير فقط');const s=salaries.find(x=>x.id===id);if(!s)return;const month=salaryMonthKey(s.salary_month);const c=salaryCalc(s,month);const today=new Date().toISOString();const {error}=await db.from('employee_salaries').update({payment_status:'paid',payment_date:today,advance_deduction:c.advanceDeduction,advance_carryover:c.carryRemaining}).eq('id',id);if(error)return toast('تعذر تسجيل تسليم الراتب: '+error.message);if(c.carryRemaining>0){const next=new Date(`${month}-01T00:00:00`);next.setMonth(next.getMonth()+1);const target=next.toISOString().slice(0,7)+'-01';const existingCarry=await db.from('advance_carryovers').select('id').eq('employee_id',s.employee_id).eq('target_month',target).eq('status','active').maybeSingle();if(!existingCarry.data){const ins=await db.from('advance_carryovers').insert({employee_id:s.employee_id,source_advance_id:null,source_salary_id:String(s.id),source_month:`${month}-01`,target_month:target,original_amount:c.adv,deducted_amount:c.advanceDeduction,remaining_amount:c.carryRemaining,status:'active'});if(ins.error)console.warn('carryover insert:',ins.error.message);}}await loadSalaries();renderSalaryReport();await emitAdvancePushEvent('salary_paid','تسليم راتب',`تم تسليم راتب ${monthOptionLabel(month)} للموظف`);toast('تم تسجيل تسليم الراتب بنجاح');}
+async function maybeNotifySalaryMonthComplete(month){const activeEmployeeIds=(employees||[]).filter(e=>e.is_active!==false).map(e=>String(e.id));const salaryEmployeeIds=new Set(salaries.filter(x=>salaryMonthKey(x.salary_month)===month).map(x=>String(x.employee_id)));if(activeEmployeeIds.length>0&&activeEmployeeIds.every(id=>salaryEmployeeIds.has(id))){try{const {data:claimed,error:claimError}=await db.rpc('claim_salary_month_notification',{p_month:month+'-01'});if(!claimError&&claimed===true)await emitAdvancePushEvent('salary_month_completed','📢 نزول الرواتب',`تم إكمال رواتب شهر ${monthOptionLabel(month)} وأصبحت الرواتب جاهزة للصرف`);}catch(err){console.warn('Salary month notification claim failed',err);}}}
+async function markSalaryPaid(id){
+  if(authRole!=='manager')return toast('هذه الصلاحية للمدير فقط');
+  const s=salaries.find(x=>x.id===id);if(!s)return;
+  const month=salaryMonthKey(s.salary_month);
+  const c=salaryCalc(s,month);
+  const u=c.currency==='USD'?'$':'د.ع';
+  const empName=employees.find(x=>String(x.id)===String(s.employee_id))?.name||'غير محدد';
+  const today=new Date().toISOString();
+  const {error}=await db.from('employee_salaries').update({payment_status:'paid',payment_date:today,advance_deduction:c.advanceDeduction,advance_carryover:c.carryRemaining}).eq('id',id);
+  if(error)return toast('تعذر تسجيل تسليم الراتب: '+error.message);
+  if(c.carryRemaining>0){const next=new Date(`${month}-01T00:00:00`);next.setMonth(next.getMonth()+1);const target=next.toISOString().slice(0,7)+'-01';const existingCarry=await db.from('advance_carryovers').select('id').eq('employee_id',s.employee_id).eq('target_month',target).eq('status','active').maybeSingle();if(!existingCarry.data){const ins=await db.from('advance_carryovers').insert({employee_id:s.employee_id,source_advance_id:null,source_salary_id:String(s.id),source_month:`${month}-01`,target_month:target,original_amount:c.adv,deducted_amount:c.advanceDeduction,remaining_amount:c.carryRemaining,status:'active'});if(ins.error)console.warn('carryover insert:',ins.error.message);}}
+  await loadSalaries();renderSalaryReport();
+  await emitAdvancePushEvent('salary_paid',`✅ تسليم راتب: ${empName}`,`تم تسليم راتب شهر ${monthOptionLabel(month)} للموظف ${empName} بصافي (${money(c.salaryNet)} ${u})`);
+  toast('تم تسجيل تسليم الراتب بنجاح');
+}
 window.markSalaryPaid=markSalaryPaid;
 async function editSalary(id){const s=salaries.find(x=>x.id===id);if(!s)return;showSalaryMenu();await openSalaryEntry();setSalaryEmployeeSelection(s.employee_id);$('salaryMonthInput').value=salaryMonthKey(s.salary_month);await loadSalaryFormRecord();window.scrollTo({top:0,behavior:'smooth'});}
 window.editSalary=editSalary;
-async function annualRaiseSalary(id){if(authRole!=='manager')return toast('هذه الصلاحية للمدير فقط');const s=salaries.find(x=>x.id===id);if(!s)return;const current=Number(s.nominal_salary||0);const answer=window.prompt('أدخل نسبة الزيادة السنوية (%)', '5');if(answer===null)return;const pct=Number(answer);if(!Number.isFinite(pct)||pct<0)return toast('نسبة الزيادة غير صحيحة');const next=Math.round(current*(1+pct/100)*100)/100;const {error}=await db.from('employee_salaries').update({nominal_salary:next}).eq('id',id);if(error)return toast('تعذر تطبيق الزيادة: '+error.message);await loadSalaries();renderSalaryReport();await emitAdvancePushEvent('salary_updated','زيادة سنوية',`تمت زيادة راتب موظف بنسبة ${pct}%`);toast(`تمت زيادة الراتب إلى ${money(next)} ${s.currency==='USD'?'$':'د.ع'}`);}
+async function annualRaiseSalary(id){
+  if(authRole!=='manager')return toast('هذه الصلاحية للمدير فقط');
+  const s=salaries.find(x=>x.id===id);if(!s)return;
+  const empName=employees.find(x=>String(x.id)===String(s.employee_id))?.name||'غير محدد';
+  const current=Number(s.nominal_salary||0);
+  const answer=window.prompt('أدخل نسبة الزيادة السنوية (%)', '5');if(answer===null)return;
+  const pct=Number(answer);if(!Number.isFinite(pct)||pct<0)return toast('نسبة الزيادة غير صحيحة');
+  const next=Math.round(current*(1+pct/100)*100)/100;
+  const u=s.currency==='USD'?'$':'د.ع';
+  const {error}=await db.from('employee_salaries').update({nominal_salary:next}).eq('id',id);
+  if(error)return toast('تعذر تطبيق الزيادة: '+error.message);
+  await loadSalaries();renderSalaryReport();
+  await emitAdvancePushEvent('salary_updated',`📈 زيادة سنوية: ${empName}`,`تمت زيادة راتب الموظف ${empName} بنسبة ${pct}% ليصبح (${money(next)} ${u})`);
+  toast(`تمت زيادة الراتب إلى ${money(next)} ${u}`);
+}
 window.annualRaiseSalary=annualRaiseSalary;
-async function deleteSalary(id){if(authRole!=='manager')return toast('هذه الصلاحية للمدير فقط');confirmBox('هل تريد حذف سجل راتب هذا الشهر؟',async()=>{const {error}=await db.from('employee_salaries').delete().eq('id',id);if(error)return toast('تعذر حذف الراتب: '+error.message);await loadSalaries();renderSalaryReport();await emitAdvancePushEvent('salary_deleted','حذف راتب','تم حذف سجل راتب من النظام');toast('تم حذف الراتب بنجاح');});}
+async function deleteSalary(id){
+  if(authRole!=='manager')return toast('هذه الصلاحية للمدير فقط');
+  const s=salaries.find(x=>x.id===id);
+  const empName=employees.find(x=>String(x.id)===String(s?.employee_id))?.name||'غير محدد';
+  const monthTxt=s?monthOptionLabel(salaryMonthKey(s.salary_month)):'';
+  confirmBox('هل تريد حذف سجل راتب هذا الشهر؟',async()=>{
+    const {error}=await db.from('employee_salaries').delete().eq('id',id);
+    if(error)return toast('تعذر حذف الراتب: '+error.message);
+    await loadSalaries();renderSalaryReport();
+    await emitAdvancePushEvent('salary_deleted',`🗑️ حذف سجل راتب: ${empName}`,`تم حذف راتب الموظف ${empName} لشهر ${monthTxt} بواسطة ${authName||'المدير'}`);
+    toast('تم حذف الراتب بنجاح');
+  });
+}
 window.deleteSalary=deleteSalary;
 async function printSalaryReport(){const report=$('salaryReport');if(!report)return;document.body.classList.add('salary-printing');window.print();setTimeout(()=>document.body.classList.remove('salary-printing'),1000);}
 async function exportSalaryReportPDF(){const report=$('salaryReport');if(!report||typeof html2pdf!=='function')return toast('تعذر إنشاء ملف PDF');const month=$('salaryReportMonth')?.value||currentMonthKey();const clone=report.cloneNode(true);clone.classList.remove('hidden-view');clone.classList.add('salary-pdf-export');clone.style.background='#fff';clone.style.width='1180px';clone.style.padding='18px';clone.querySelectorAll('button').forEach(b=>b.remove());const wrap=document.createElement('div');wrap.style.direction='rtl';wrap.style.background='#fff';wrap.appendChild(clone);document.body.appendChild(wrap);try{await html2pdf().set({margin:6,filename:`كشف_رواتب_${month}.pdf`,image:{type:'jpeg',quality:.98},html2canvas:{scale:2,useCORS:true,backgroundColor:'#fff'},jsPDF:{unit:'mm',format:'a4',orientation:'landscape'},pagebreak:{mode:['css','legacy'],avoid:['tr','thead']}}).from(wrap).save();}catch(e){console.error(e);toast('تعذر إنشاء ملف PDF');}finally{wrap.remove();}}
@@ -1412,7 +1483,6 @@ async function exportElementToPDF(elementId, filename, orientation='landscape'){
 async function exportLeaveReportPDF(){
   await loadLeaves();
   fillLeaveReportMonths();
-  // زر القائمة يصدر جميع السجلات؛ زر صفحة التفاصيل يحترم الشهر المحدد.
   const onReportPage=!$('leaveDetailsAll')?.classList.contains('hidden-view');
   if(!onReportPage && $('allLeavesMonth'))$('allLeavesMonth').value='';
   renderAllLeaveDetails();
@@ -1454,7 +1524,6 @@ async function exportMonthlyMainPDF(){
     const leaveRows=(leaves||[]).filter(l=>leaveOverlapsMonth(l,month)).map(l=>[l.employees?.name||employees.find(e=>String(e.id)===String(l.employee_id))?.name||'',leaveTypeLabel(l.leave_type),leaveRangeLabel(l),l.advance_givers?.name||'غير محدد',l.notes||'']);
     const salaryRows=(salaries||[]).filter(s=>salaryMonthKey(s.salary_month)===month).map(s=>{const c=salaryCalc(s,month),name=employees.find(e=>String(e.id)===String(s.employee_id))?.name||'غير محدد',u=c.currency==='USD'?'دولار':'دينار عراقي';return [name,monthOptionLabel(month),money(c.nominal)+' '+u,money(c.workHours)+' ساعة',money(c.adv)+' د.ع',money(c.directPenalty)+' '+u,money(c.salaryNet)+' '+u,salaryStatus(s)];});
     const penaltyRows=(penalties||[]).filter(p=>monthKeyFromDate(p.penalty_date)===month).map(p=>[p.employees?.name||employees.find(e=>String(e.id)===String(p.employee_id))?.name||'',arDate(p.penalty_date),penaltyLabel(p.penalty_type),p.penalty_type==='deduction'?money(p.amount):'يحسب مع الراتب',p.penalty_type==='deduction'?(p.currency==='USD'?'دولار':'دينار عراقي'):'-',p.notes||'']);
-    const leaveDays=leaveRows.reduce((n,row)=>n,0);
     const content=`<div class="monthly-pdf-report" dir="rtl"><header><h1>أمازون سوبر ماركت</h1><h2>التقرير الإداري الشهري المفصل</h2><p>الشهر: ${escapeHtml(monthOptionLabel(month))}</p><p>تاريخ إصدار التقرير: ${escapeHtml(arDate(isoToday()))}</p></header><div class="pdf-report-summary"><span>السلف: ${advRows.length}</span><span>الإجازات والزمنيات: ${leaveRows.length}</span><span>سجلات الرواتب: ${salaryRows.length}</span><span>العقوبات: ${penaltyRows.length}</span></div>${pdfTable('1. السلف',['رقم العملية','التاريخ','الموظف','المبلغ','المانح','الملاحظات'],advRows)}${pdfTable('2. الإجازات والزمنيات',['الموظف','النوع','الفترة / الوقت','المسؤول','الملاحظات'],leaveRows)}${pdfTable('3. الرواتب',['الموظف','الشهر','الراتب الاسمي','الساعات الفعلية','السلف','العقوبات','صافي الراتب','الحالة'],salaryRows)}${pdfTable('4. العقوبات',['الموظف','التاريخ','النوع','المبلغ / المعالجة','العملة','الملاحظات'],penaltyRows)}<p class="pdf-report-note">تم فصل العملة حسب سجل العملية؛ لا تُجمع مبالغ الدينار والدولار معًا. قسم المكافآت غير مضمّن في هذا التقرير لأن النسخة الحالية لا تحتوي على سجل مكافآت قابل للتصدير.</p></div>`;
   const wrap=document.createElement('div');wrap.style.direction='rtl';wrap.style.background='#fff';wrap.style.position='fixed';wrap.style.left='0px';wrap.style.top='0';wrap.style.width='1180px';wrap.innerHTML=content;document.body.appendChild(wrap);
     try{await html2pdf().set({margin:7,filename:`تقرير_أمازون_${month}.pdf`,image:{type:'jpeg',quality:.98},html2canvas:{scale:2,useCORS:true,backgroundColor:'#fff',scrollX:0,scrollY:0},jsPDF:{unit:'mm',format:'a4',orientation:'landscape'},pagebreak:{mode:['css','legacy'],avoid:['tr','thead','.pdf-report-summary']}}).from(wrap).save();}finally{wrap.remove();}
@@ -1510,12 +1579,14 @@ function deletePenalty(id){
   if(authRole!=='manager')return toast('هذه الصلاحية للمدير فقط');
   const p=penalties.find(x=>String(x.id)===String(id));
   if(!p)return toast('العقوبة غير موجودة');
+  const empName=p.employees?.name||'غير محدد';
+  const typeTxt=penaltyLabel(p.penalty_type);
   confirmBox('هل تريد حذف هذه العقوبة؟',async()=>{
     const {error}=await db.from('employee_penalties').delete().eq('id',id);
     if(error)return toast('تعذر حذف العقوبة: '+error.message);
     await loadPenalties();
     renderPenaltyEditList();
-    await emitAdvancePushEvent('penalty_deleted','حذف عقوبة',`تم حذف عقوبة للموظف ${p.employees?.name||''}`);
+    await emitAdvancePushEvent('penalty_deleted',`🗑️ حذف عقوبة: ${empName}`,`تم حذف عقوبة (${typeTxt}) للموظف ${empName} بواسطة ${authName||'المدير'}`);
     toast('تم حذف العقوبة بنجاح');
   });
 }
@@ -1542,12 +1613,18 @@ async function savePenalty(){
   if(btn)btn.disabled=false;
   if(result.error)return toast((selectedPenaltyId?'تعذر تعديل العقوبة: ':'تعذر حفظ العقوبة: ')+result.error.message);
   const isEdit=Boolean(selectedPenaltyId);
-  const empName=employees.find(e=>String(e.id)===String(employee_id))?.name||'';
+  const empName=employees.find(e=>String(e.id)===String(employee_id))?.name||'غير محدد';
+  const typeTxt=penaltyLabel(penalty_type);
+  const amountTxt=penalty_type==='deduction'?`${money(amount)} ${currency==='USD'?'$':'د.ع'}`:'يحسب مع الراتب';
   selectedPenaltyId=null;
   await loadPenalties();
   renderPenaltyEditList();
   clearPenaltyForm();
-  await emitAdvancePushEvent(isEdit?'penalty_updated':'penalty_added',isEdit?'تعديل عقوبة':'إضافة عقوبة',`${isEdit?'تم تعديل':'تمت إضافة'} عقوبة للموظف ${empName}`);
+  await emitAdvancePushEvent(
+    isEdit?'penalty_updated':'penalty_added',
+    isEdit?`⚠️ تعديل عقوبة: ${empName}`:`⚠️ عقوبة جديدة: ${empName}`,
+    `الموظف: ${empName} | النوع: ${typeTxt} | القيمة: ${amountTxt} | التاريخ: ${arDate(penalty_date)}${notes?' | ملاحظات: '+notes:''}`
+  );
   toast(isEdit?'تم تعديل العقوبة بنجاح':'تم حفظ العقوبة بنجاح');
 }
 
@@ -1651,7 +1728,7 @@ async function savePasswordChange(){
 
     if(passwordDialogMode==='giver-self'){
       const loginValue=$("loginNameSelect")?.value||"";
-      const id=authRole==='giver'?(authGiverId||null):loginValue.replace(/^giver:/,'');
+      const id=authRole==='giver'?(currentGiverId()||null):loginValue.replace(/^giver:/,'');
       const old=$('oldPassword').value;
       if(!id)return toast('تعذر تحديد حساب المانح');
       if(!old)return toast('أدخل كلمة المرور الحالية');
@@ -1700,7 +1777,6 @@ function openEmployeeManager(mode){
   document.querySelector('.bulk-people')?.classList.toggle('hidden',mode==='delete');
   renderPeople('employees');
 }
-
 
 function installPasswordVisibilityToggles(){
   const ids=["loginPassword","giverNewPassword","giverConfirmPassword","oldPassword",
@@ -1813,7 +1889,8 @@ $('addEmployeeBtn')?.addEventListener('click',()=>openEmployeeManager('add'));
 $('deleteEmployeeBtn')?.addEventListener('click',()=>openEmployeeManager('delete'));
 $('changePasswordBtn')?.addEventListener('click',()=>openPasswordModal(false));
 $('changeOwnPasswordBtn')?.addEventListener('click',()=>{
-  if(authRole==='giver' && authGiverId)$("loginNameSelect").value="giver:"+authGiverId;
+  const gid = currentGiverId();
+  if(authRole==='giver' && gid)$("loginNameSelect").value="giver:"+gid;
   openPasswordModal(false);
 });
 $('resetGiverPasswordBtn')?.addEventListener('click',()=>openPasswordModal(true));
@@ -1827,3 +1904,4 @@ document.addEventListener("keydown",e=>{
   if(e.ctrlKey&&e.key==="Enter"){e.preventDefault();addAdvance();}
 });
 init();
+جارٍ تحليل البيانات
