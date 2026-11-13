@@ -30,6 +30,6 @@ select g.id, g.name, g.is_active as giver_active,
        count(s.*) filter (where s.expires_at > now()) as valid_sessions
 from public.advance_givers g
 left join public.advance_giver_accounts a on a.giver_id=g.id
-left join public.advance_giver_sessions s on s.giver_id=g.id
+left join public.advance_giver_sessions s on s.account_id = a.id
 group by g.id,g.name,g.is_active,a.is_active,a.password_set_at
 order by g.name;
